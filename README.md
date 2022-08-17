@@ -5,13 +5,13 @@ The colour values on the edges determine if two segments fit together. Rotating 
 
 Generated grid and input image:
 <p align="center">
-  <img src="img/grid.png" alt="grid" style="zoom:60%; " />
-  <img src="modules.png" image-rendering="pixelated" alt="source segment image" style="zoom:700%; image-rendering: pixelated;" />
+  <img src="img/grid.png" alt="grid" style="height: 300px;" />
+  <img src="img/source.png" image-rendering="pixelated" alt="source segment image" style="height: 300px;" />
 </p>
 
 Result:
 <p align="center">
-  <img src="img/solution.png" alt="solution" style="zoom:100%;" />
+  <img src="img/solution.png" alt="solution" style="height: 500px;" />
 </p>
 
 

@@ -10,10 +10,10 @@
 NotebookFileLineBreakTest
 NotebookFileLineBreakTest
 NotebookDataPosition[       158,          7]
-NotebookDataLength[      3413,         98]
-NotebookOptionsPosition[      2927,         81]
-NotebookOutlinePosition[      3331,         97]
-CellTagsIndexPosition[      3288,         94]
+NotebookDataLength[      3751,        108]
+NotebookOptionsPosition[      3265,         91]
+NotebookOutlinePosition[      3669,        107]
+CellTagsIndexPosition[      3626,        104]
 WindowFrame->Normal*)
 
 (* Beginning of Notebook Content *)
@@ -47,9 +47,19 @@ Cell[BoxData[{
      RowBox[{"NotebookDirectory", "[", "]"}], "<>", "\"\<modules.txt\>\""}], 
     ",", 
     RowBox[{"Flatten", "@", "imgdata"}], ",", "\"\<Real32\>\""}], "]"}], 
+  ";"}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"Export", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"NotebookDirectory", "[", "]"}], "<>", 
+     "\"\<img/source.png\>\""}], ",", 
+    RowBox[{"ImageResize", "[", 
+     RowBox[{"image", ",", "400", ",", 
+      RowBox[{"Resampling", "\[Rule]", "\"\<Nearest\>\""}]}], "]"}]}], "]"}], 
   ";"}]}], "Input",
  Background->RGBColor[1, 0.85, 0.85],
- CellLabel->"In[37]:=",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
+ CellLabel->"In[12]:=",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
 
 Cell[BoxData[
  GraphicsBox[RasterBox[CompressedData["
@@ -76,7 +86,7 @@ P15m2H8=
   ImageSize->200,
   ImageSizeRaw->{30., 30.},
   PlotRange->{{0, 30.}, {0, 30.}}]], "Output",
- CellLabel->"Out[38]=",ExpressionUUID->"ce92ad4d-eae2-4490-8ff2-c22532a56b60"]
+ CellLabel->"Out[13]=",ExpressionUUID->"87c2b85e-5265-46c7-ae2f-fe7934fcd68a"]
 }, Open  ]]
 },
 WindowSize->{958.5, 999.75},
@@ -97,8 +107,8 @@ CellTagsIndex->{}
 (*NotebookFileOutline
 Notebook[{
 Cell[CellGroupData[{
-Cell[580, 22, 1018, 29, 102, "Input",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
-Cell[1601, 53, 1310, 25, 217, "Output",ExpressionUUID->"ce92ad4d-eae2-4490-8ff2-c22532a56b60"]
+Cell[580, 22, 1356, 39, 121, "Input",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
+Cell[1939, 63, 1310, 25, 217, "Output",ExpressionUUID->"87c2b85e-5265-46c7-ae2f-fe7934fcd68a"]
 }, Open  ]]
 }
 ]

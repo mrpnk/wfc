@@ -1,0 +1,106 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 12.1' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      3413,         98]
+NotebookOptionsPosition[      2927,         81]
+NotebookOutlinePosition[      3331,         97]
+CellTagsIndexPosition[      3288,         94]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+
+Cell[CellGroupData[{
+Cell[BoxData[{
+ RowBox[{
+  RowBox[{"image", "=", 
+   RowBox[{"ColorQuantize", "[", 
+    RowBox[{
+     RowBox[{"Import", "[", 
+      RowBox[{
+       RowBox[{"NotebookDirectory", "[", "]"}], "<>", "\"\<modules.png\>\""}],
+       "]"}], ",", "100"}], "]"}]}], ";"}], "\[IndentingNewLine]", 
+ RowBox[{"Show", "[", 
+  RowBox[{"image", ",", 
+   RowBox[{"ImageSize", "\[Rule]", "200"}]}], "]"}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"imgdata", "=", 
+   RowBox[{
+    RowBox[{"ImageData", "[", "image", "]"}], "[", 
+    RowBox[{"[", 
+     RowBox[{"All", ",", "All", ",", 
+      RowBox[{"1", ";;", "3"}]}], "]"}], "]"}]}], 
+  ";"}], "\[IndentingNewLine]", 
+ RowBox[{
+  RowBox[{"BinaryWrite", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"NotebookDirectory", "[", "]"}], "<>", "\"\<modules.txt\>\""}], 
+    ",", 
+    RowBox[{"Flatten", "@", "imgdata"}], ",", "\"\<Real32\>\""}], "]"}], 
+  ";"}]}], "Input",
+ Background->RGBColor[1, 0.85, 0.85],
+ CellLabel->"In[37]:=",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
+
+Cell[BoxData[
+ GraphicsBox[RasterBox[CompressedData["
+1:eJydlk1oE2EQhoNePChGeg2i0MuCeJBU1KIQFI34Q2mbolKQlMTQIGlNKhqo
+6EWP/kARBY22BPoTpV5E6UnwkJMg4kE8SS+evHkTwTd5l7fDt9tNYph8zM7O
+PDs7M9+X7J2YGr6yJRaLVbZhGc7eSJXL2epIHBeZUmWyUMrnTpdm8oV8+dDE
+Vhh3+9+WPpB77cipd5c3k8aLVEeLBKgj2edYj47fpwLj7OpUvXZ1cf7avaUN
+z9ybMXCw2stosuBc4bxY86Pmn1Xgs/72zJfVNKS5chJGXPJuRzKyFZY5P50r
+kr9Qu0UyBXAqjK02hkQOPotMFUTVeFK/PvdyuvqqqHeXOPXZrPI9dbCnngaB
+EZaOcqI/DtElSoHwhysjEFt5yMVG0emFbvWn76g1ljyT3mVze9AYRF8+vT+P
+VY9DLO/SIqYeavsOGb07zf4OlG4yED5g1h/tV9+Vm3qqcDyOJSLZpgcLCXxT
+1uHDchLwzFJBURoYRQklH1oOjPlPP7w26pA1saGbKHpaHJ9QjiPWp5v5CRW8
+Rf+l+MHHfVB87J/fP799ntwTw+pMi+aHA9bnnY0g78gljjW3Aw6h5ePfX831
+78CKzFHBmmx/NGAQwu3u1h4Hed/szqE1D2mT/DUTIxwKLX5DPY8520G1/QpW
+A2RbDShgQmQBEFgqtKQWMh3JXQqKENHlbiahe5/Q+bFjgxfEBsR72Wpg79hA
+7gL4WDJPA0YFybjFDQhFG1yXVGSBsM608On2tOFUiOz4OChrUfuCbjDeXj7n
+/H7RX6codaZnZ4O6fHiOOfWJ+FnsSYI9DSUHh6qn+Qmdjcb4ILBcNQl4WZUC
+8qOQIBmKjHCQD49T7FOsOlcBPH4hARFcIUnz4RGkS2xJrr7SPltaTM/TPyIA
+SbY5t9Joh6hWzNlaGKK0+Z8BUfrnAF0F2ahbG2sL4tRZydtqkxzdr/87JWzg
+P15m2H8=
+   "], {{0, 0}, {30., 30.}}, {0, 255},
+   ColorFunction->RGBColor,
+   ImageResolution->{72, 72}],
+  ImageSize->200,
+  ImageSizeRaw->{30., 30.},
+  PlotRange->{{0, 30.}, {0, 30.}}]], "Output",
+ CellLabel->"Out[38]=",ExpressionUUID->"ce92ad4d-eae2-4490-8ff2-c22532a56b60"]
+}, Open  ]]
+},
+WindowSize->{958.5, 999.75},
+WindowMargins->{{Automatic, 0}, {Automatic, 0}},
+FrontEndVersion->"13.0 for Microsoft Windows (64-bit) (February 4, 2022)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"4d479701-a733-4fca-a408-4ee134f1daa3"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[CellGroupData[{
+Cell[580, 22, 1018, 29, 102, "Input",ExpressionUUID->"b9988652-720d-4fc3-920a-e69ef82fcd85"],
+Cell[1601, 53, 1310, 25, 217, "Output",ExpressionUUID->"ce92ad4d-eae2-4490-8ff2-c22532a56b60"]
+}, Open  ]]
+}
+]
+*)
+

@@ -1,3 +1,4 @@
+#include "timer.h"
 #include "grid.h"
 #include "wfc.h"
 
@@ -6,22 +7,32 @@ int main()
 	srand(27);
 
 	// In the beginning there was the grid
-	Grid g;
-	g.init(10, 5);
+	Grid grid;
+	grid.init(13);
+	//grid.relax(5);
 
 	std::ofstream file("grid.txt");
-	g.print(file);
+	grid.print(file);
 	file.close();
 
-	// Load the segments from file
-	wfc::gridState gs;
-	gs.load();
-	gs.initWithGrid(g);
 
+	// Load the segments from file
+	wfc::SegmentPalette palette;
+	palette.load("modules.txt");
+
+
+	// Create the option space for this grid
+	wfc::gridState state;
+	state.initWithGrid(&grid, &palette);
+
+
+	// Find a constellation that satisfies all conditions
 	wfc::WaveFunctionCollapser collapser;
-	collapser.solve(g, gs);
+	collapser.solve(&state);
 
 	std::ofstream outfile("canvas.txt");
-	gs.printCanvas(outfile, " ");
+	state.printCanvas(outfile, " ");
 	outfile.close();
+
+	g_timer.print();
 }

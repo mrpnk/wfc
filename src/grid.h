@@ -43,8 +43,11 @@ private:
 	std::vector<node> nodes;
 	std::vector<cell> cells;
 	const int mergeProb = 100;
+	float totalArea;
+
 public:
-	void init(int n, int nRelaxIterations) {
+	void init(int n) {
+		AutoTimer at(g_timer,_FUNC_);
 		cells.reserve(n * 2 * n * 3);
 		cells.resize(n * 2 * n);
 		int nblocks = cells.size();
@@ -177,10 +180,43 @@ public:
 			}
 		}
 
-		// Relax
+
+		// Use node information to find the neighbours of each cell:
+		int haven[5] = { 0,0,0,0,0 };
+		for (cell& face : cells) {
+			if (!face.exists) continue;
+			int nnn = 0;
+			for (int kk = 0; kk < 4; ++kk) {
+				face.nn[kk] = nullptr;
+				for (int xy = 0; xy < face.corners[kk]->ncontained; ++xy) {
+					cell* otherface = face.corners[kk]->contained[xy];
+					if (otherface == &face) continue;
+					bool touches = false;
+					for (int kk2 = 0; kk2 < 4; ++kk2) {
+						if (otherface->corners[kk2] == face.corners[(kk + 1) % 4]) {
+							touches = true;
+							break;
+						}
+					}
+					if (touches)
+					{
+						nnn++;
+						face.nn[kk] = otherface;
+						break;
+					}
+				}
+			}
+			haven[nnn]++;
+		}
+//		for (int i = 0; i <= 4; ++i)
+//			std::cout << "have " << i << ": " << haven[i] << std::endl;
+
+		totalArea = sqrt(3) * 3 / 2 * n * n / 4;
+	}
+	void relax(int nRelaxIterations){
+		AutoTimer at(g_timer,_FUNC_);
 		int ncellstot = 0;
 		for (cell& c : cells)if (c.exists)ncellstot++;
-		float totalArea = sqrt(3) * 3 / 2 * n * n / 4;
 		float avgArea = totalArea / ncellstot;
 		for (int iter = 0; iter < nRelaxIterations; iter++) {
 			for (cell& c : cells) {
@@ -215,37 +251,8 @@ public:
 				k.force = { 0,0 };
 			}
 		}
-
-		// Use node information to find the neighbours of each cell:
-		int haven[5] = { 0,0,0,0,0 };
-		for (cell& face : cells) {
-			if (!face.exists) continue;
-			int nnn = 0;
-			for (int kk = 0; kk < 4; ++kk) {
-				face.nn[kk] = nullptr;
-				for (int xy = 0; xy < face.corners[kk]->ncontained; ++xy) {
-					cell* otherface = face.corners[kk]->contained[xy];
-					if (otherface == &face) continue;
-					bool touches = false;
-					for (int kk2 = 0; kk2 < 4; ++kk2) {
-						if (otherface->corners[kk2] == face.corners[(kk + 1) % 4]) {
-							touches = true;
-							break;
-						}
-					}
-					if (touches)
-					{
-						nnn++;
-						face.nn[kk] = otherface;
-						break;
-					}
-				}
-			}
-			haven[nnn]++;
-		}
-		for (int i = 0; i <= 4; ++i)
-			std::cout << "have " << i << ": " << haven[i] << std::endl;
 	}
+
 	void print(std::ostream& os) {
 		for (cell& c : cells) {
 			if (!c.exists) continue;

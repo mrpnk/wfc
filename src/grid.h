@@ -7,19 +7,19 @@
 
 struct v2{
 	float x, y;
-	v2 operator+(v2 const& r)const{
-		return{x+r.x,y+r.y};
+	v2 operator+(v2 const& r)const {
+		return {x+r.x,y+r.y};
 	}
-	v2 operator-(v2 const& r)const{
-		return{x-r.x,y-r.y};
+	v2 operator-(v2 const& r)const {
+		return {x-r.x,y-r.y};
 	}
-	v2 operator*(float r)const{
-		return{x*r,y*r};
+	v2 operator*(float r)const {
+		return {x*r,y*r};
 	}
-	friend std::ostream& operator<<(std::ostream& os,v2 const& v){
+	friend std::ostream& operator<<(std::ostream& os,v2 const& v) {
 		return os<<v.x<<" "<<v.y;
 	}
-	bool operator==(v2 const& r)const=default;
+	bool operator==(v2 const& r)const = default;
 };
 
 class Grid {
@@ -46,32 +46,47 @@ private:
 	float totalArea;
 
 public:
+	/*  Example for argument n=1:
+	 *
+	 *      i=0       i=1       i=2
+	 *  j=0  0---------2---------4
+	 *        \       . \         \
+	 *         \    .    \         \
+	 *          \ .       \         \
+	 *      j=1  5---------7---------9
+	 *            \         \       . \
+	 *             \         \    .    \
+	 *              \         \ .       \
+	 *         j=2  10--------12---------14
+	 *
+	 */
 	void init(int n) {
 		AutoTimer at(g_timer,_FUNC_);
+		n *= 2; // regular hexagons need even n
 		cells.reserve(n * 2 * n * 3);
 		cells.resize(n * 2 * n);
 		int nblocks = cells.size();
 		nodes.reserve((n + 1 + n) * (n + 1 + n) + nblocks);// reserve enough for the worst case. we cannot reallocate!
 		nodes.resize((n + 1 + n) * (n + 1 + n));
 
-		float h = sqrt(3) / 2.f;
+		float h = std::sqrt(3.f) / 2.f;
 		auto getNode = [this, n](int i, int j, int ii = 0, int jj = 0)->node& {return nodes[(j * 2 + jj) * (n + 1 + n) + (i * 2 + ii)]; };
-		auto middleNode = [this](node* nod0, node* nod1)->node& {return *(nod0 + std::distance(nod0, nod1) / 2); };
+		auto middleNode = [](node* nod0, node* nod1)->node& {return *(nod0 + std::distance(nod0, nod1) / 2); };
 		auto isBorder = [n](int i, int j, int ii = 0, int jj = 0) {return i == 0 || j == 0 || i == n || j == n || (i + j) * 2 + ii + jj == n || (i + j) * 2 + ii + jj == n * 3; };
 		for (int j = 0; j <= n; ++j) {
 			for (int i = 0; i <= n; ++i) {
 				node& nod = getNode(i, j);
 				nod.pos = { i + j * 0.5f,j * h };
-				if (isBorder(i, j))nod.fixedX = nod.fixedY = true;
+				nod.fixedX = nod.fixedY = isBorder(i, j);
 				if (i > 0) {
 					node& nod = getNode(i, j, -1, 0);
 					nod.pos = (getNode(i - 1, j).pos + getNode(i, j).pos) * 0.5f;
-					if (isBorder(i, j))nod.fixedX = nod.fixedY = true;
+					if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 				}
 				if (j > 0) {
 					node& nod = getNode(i, j, 0, -1);
 					nod.pos = (getNode(i, j - 1).pos + getNode(i, j).pos) * 0.5f;
-					if (isBorder(i, j))nod.fixedX = nod.fixedY = true;
+					if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 				}
 				if (j == 0 || i == 0) continue;
 
@@ -102,7 +117,7 @@ public:
 				if (d0.exists && rand() % 100 < mergeProb) {
 					switch (rand() % 3) {
 					case 0:
-						if (j >= 2) {// merge up
+						if (j >= 2) { // merge up
 							cell& da = cells[((j - 2) * n + (i - 1)) * 2 + 1];
 							if (da.exists) {
 								d0.corners[1] = da.corners[1];
@@ -111,7 +126,7 @@ public:
 							}
 						}
 					case 1:
-						if (i >= 2) {// merge left
+						if (i >= 2) { // merge left
 							cell& da = cells[((j - 1) * n + (i - 2)) * 2 + 1];
 							if (da.exists) {
 								d0.corners[2] = d0.corners[3];
@@ -121,7 +136,7 @@ public:
 						}
 						break;
 					case 2:
-						if (d0.exists && d1.exists) {// merge self
+						if (d0.exists && d1.exists) { // merge self
 							d0.corners[2] = d1.corners[2];
 							d1.exists = false;
 						}
@@ -211,7 +226,7 @@ public:
 //		for (int i = 0; i <= 4; ++i)
 //			std::cout << "have " << i << ": " << haven[i] << std::endl;
 
-		totalArea = sqrt(3) * 3 / 2 * n * n / 4;
+		totalArea = std::sqrt(3.f) * 3 / 2 * n * n / 4;
 	}
 	void relax(int nRelaxIterations){
 		AutoTimer at(g_timer,_FUNC_);

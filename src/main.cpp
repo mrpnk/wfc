@@ -4,12 +4,12 @@
 
 int main()
 {
-	srand(27);
+	srand(23);
 
 	// In the beginning there was the grid
 	Grid grid;
-	grid.init(13);
-	//grid.relax(5);
+	grid.init(5);
+	grid.relax(5);
 
 	std::ofstream file("grid.txt");
 	grid.print(file);

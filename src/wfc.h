@@ -1,22 +1,25 @@
 #pragma once
 
+#include "grid.h"
+
 #include <iostream>
 #include <fstream>
-#include <map>
-#include <vector>
-#include <stack>
-#include <queue>
-#include <set>
-#include <cassert>
 #include <iomanip>
+
+#include <vector>
+#include <set>
+#include <map>
+#include <queue>
+#include <stack>
+#include <cassert>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
 #include <iterator>
 #include <mutex>
 #include <filesystem>
+#include <random>
 
-#include "grid.h"
 
 namespace wfc
 {
@@ -74,6 +77,7 @@ namespace wfc
 		int modIdx;
 		short rot;
 		bool mirrorX;
+		int prio = 0;
 		bool operator==(option const&)const = default;
 	};
 
@@ -183,13 +187,17 @@ namespace wfc
 		wavefunction wave;
 		superposition allSP;
 
-		void initWithGrid(Grid const* g, SegmentPalette const* p){
+		void init(Grid const* g, SegmentPalette const* p){
 			grid = g;
 			palette = p;
 
 			allSP.resize(palette->getNumOptions()); std::iota(std::begin(allSP), std::end(allSP), 0);
 
-			// Create a superposition for each cell in the grid:
+			reset();
+		}
+
+		// Creates the total superposition for each cell in the grid:
+		void reset(){
 			wave.resize(grid->forAllCells([](auto) {}), allSP);
 			grid->forAllCells([&, counter = 0](Grid::cell const& c)mutable{ c.data = &wave[counter++]; });
 		}
@@ -206,7 +214,7 @@ namespace wfc
 			for (auto& a : wave) if (a.size() == 0) return true;
 			return false;
 		}
-		Grid::cell const* getLowestEntropyPos() const {
+		Grid::cell const& getLowestEntropyPos() const {
 			std::vector<Grid::cell const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
 			grid->forAllCells([&](Grid::cell const& c) {
 				superposition& sp = *static_cast<superposition*>(c.data);
@@ -215,7 +223,7 @@ namespace wfc
 					else if (sp.size() == minEntropy) minPosis.push_back(&c);
 				}
 			});
-			return minPosis[rand() % minPosis.size()];
+			return *minPosis[rand() % minPosis.size()];
 		}
 		bool isAnyMirrored() const {
 			for (auto& a : wave)
@@ -248,15 +256,25 @@ namespace wfc
 	{
 		gridState* state;
 		SegmentPalette const* palette;
+		std::mt19937 rg;
 
-		void collapse(Grid::cell const* pos) {
-			superposition& sp = *static_cast<superposition*>(pos->data);
+		// Fills the superposition of the slot based on hard conditions. The result is used as the initial state for wfc.
+		void fillOptions(Grid::cell const& c) {
+			superposition& sp = *static_cast<superposition*>(c.data);
+			sp = state->allSP;
+		}
+
+		void collapse(Grid::cell const& c) {
+			superposition& sp = *static_cast<superposition*>(c.data);
 			sp = { sp[rand() % sp.size()] };
 		}
-		void propagate(Grid::cell const* pos) {
+
+		// Remove options of neighbouring cells that do not fit to any option of the given cell.
+		bool propagate(Grid::cell const& c) {
 			AutoTimer at(g_timer, _FUNC_);
+			std::map<Grid::cell const*, superposition> backup;
 			uniqueStack<Grid::cell const*> jobs;
-			jobs.push(pos);
+			jobs.push(&c);
 			while (!jobs.empty()) {
 				Grid::cell const* p = jobs.pop();
 				superposition& sp = *static_cast<superposition*>(p->data);
@@ -264,11 +282,60 @@ namespace wfc
 					if (Grid::cell const* nnp = state->getPos(p, d); nnp != nullptr) {
 						superposition& nnsp = *static_cast<superposition*>(nnp->data);
 						if (nnsp.size() <= 1) continue;
-						if (std::erase_if(nnsp, [&](int& other_opt) {return !palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt)); }))
+						if (!backup.contains(nnp)) backup[nnp] = nnsp;
+
+						erase_neighbours:
+						if (std::erase_if(nnsp, [&](int& other_opt) {
+							return !palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt));
+						}))
 							jobs.push(nnp);
+
+						if (nnsp.size() == 0) {
+							if (!nnp->touched) {
+								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
+								std::cerr << "re-update neighbour slot to save the wave..." << std::endl;
+								fillOptions(*nnp);
+								nnp->touched = true;
+								if (nnsp != backup[nnp]) {
+									std::cerr << "re-update found new options: ";
+									for (auto& a: nnsp)
+										std::cerr << a << ",";
+									std::cerr << " ->Repeat." << std::endl;
+									backup[nnp] = nnsp;
+									goto erase_neighbours;
+								}
+							} else goto undo_propagate;
+						}
 					}
 				}
 			}
+			return true;
+
+			undo_propagate:
+			for (auto& p: backup) {
+				*static_cast<superposition*>(p.first->data) = p.second;
+			}
+			return false;
+		}
+
+		// Fills superpositions of all (touched) slots with the prefiltered options.
+		void fillWave(bool all){
+			state->grid->forAllCells([&, counter=0](Grid::cell const& c)mutable{
+				bool needsUpdate = c.touched||all;
+				if(needsUpdate){// suppose this is a new slot
+					fillOptions(c);
+				}
+			});
+		}
+
+		// Returns a list of numbers from 0 to n-1 in random order but such that the prio(ret[i]) >= prio(ret[i+1]).
+		std::vector<int> sort_shuffle(int n, std::function<int(int)> prio, std::mt19937& rg){
+			if(n==1)return {0};
+			std::vector<int> rand_order(n);
+			std::iota(std::begin(rand_order), std::end(rand_order), 0);
+			std::shuffle(std::begin(rand_order), std::end(rand_order), rg);
+			std::sort(std::begin(rand_order), std::end(rand_order), [&](int i, int j){return prio(i)>prio(j);});
+			return rand_order;
 		}
 
 	public:
@@ -279,13 +346,84 @@ namespace wfc
 			palette = s->palette;
 
 			while (!state->isCollapsed()) {
-				auto p = state->getLowestEntropyPos();
+				auto& p = state->getLowestEntropyPos();
 				collapse(p);
 				propagate(p);
 			}
 
 			std::cout << "isAnyMirrored = " << state->isAnyMirrored() << std::endl;
 			std::cout << "isStuck = " << state->isStuck() << std::endl;
+		}
+
+
+		// Returns if successfull i.e. not stuck.
+		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
+			std::string ph = std::string(stage, '|');
+			if (state->isCollapsed())
+				return !state->isStuck();
+			out_nrecursions++;
+			const auto& c = state->getLowestEntropyPos();
+			superposition& sp = *static_cast<superposition*>(c.data);
+			//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
+			if (sp.size() == 1)
+				c.touched = false;
+			superposition backup = sp;
+			std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
+			std::cerr << std::endl;
+			std::vector<int> rand_order = sort_shuffle(backup.size(),
+													   [&](int i) {return palette->getOption(i).prio; }, rg);
+			for (int idx : rand_order) {
+				// Make a choice:
+				int a = backup[idx];
+				sp = { a };
+				std::cerr << ph << "choose " << a << std::endl;
+				if (!propagate(c))
+				{
+					std::cerr << ph << "redone choice " << a << std::endl;
+					continue;
+				}
+				std::cerr << ph << "recursion ->" << std::endl;
+				if (!backtrack(out_nrecursions, out_niters, stage + 1))
+				{
+					std::cerr << ph << "backtrace " << a << std::endl;
+					continue;
+				}
+				std::cerr << ph << "success" << std::endl;
+				return true;
+			}
+			sp = backup;
+			return false;
+		}
+
+		// Solves the wave with backtracking.
+		void solveRecursive() { //, newModuleCB_t&& newMod
+			fillWave(true);
+			auto action = [&]() mutable {
+
+//				// Map the intern wave function to the grid slots:
+//				wavefunction gridwave(gs..getNumCells() * 8);
+//				g.forAllCells([&, counter = 0](Cell&, int, slot& s)mutable{
+//					gridwave[counter++] = &s.sp;
+//				});
+
+				// Collapse and propagate:
+				auto t0 = std::chrono::high_resolution_clock::now();
+				int nrecursions = 0, niters = 0;
+
+				backtrack(nrecursions, niters, 0);
+
+				std::cout << "Wave function collapse done:" << std::endl;
+				std::cout << "> Time = " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t0).count() << " ms" << std::endl;
+				std::cout << "> Wave size = " << state->wave.size() << std::endl;
+				std::cout << "> recursion = " << nrecursions << std::endl;
+				std::cout << "> neighbour-interactions = " << niters << std::endl;
+				std::cout << "> isAnyMirrored = " << state->isAnyMirrored() << std::endl;
+				std::cout << "> isStuck = " << state->isStuck() << std::endl;
+
+				//realize(g, newMod);
+			};
+
+			action();
 		}
 	};
 

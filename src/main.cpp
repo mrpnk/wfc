@@ -23,7 +23,7 @@ int main()
 
 	// Create the option space for this grid
 	wfc::gridState state;
-	state.initWithGrid(&grid, &palette);
+	state.init(&grid, &palette);
 
 
 	// Find a constellation that satisfies all conditions

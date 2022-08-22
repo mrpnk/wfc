@@ -25,7 +25,7 @@ struct v2{
 class Grid {
 public:
 	struct cell;
-	struct node {
+	struct vertex {
 		v2 pos;
 		v2 force;
 		bool fixedX = false;
@@ -35,12 +35,13 @@ public:
 	};
 	struct cell {
 		bool exists = false;
-		node* corners[4];
+		vertex* corners[4];
 		cell* nn[4];
 		mutable void* data = nullptr;
+		mutable bool touched = false;
 	};
 private:
-	std::vector<node> nodes;
+	std::vector<vertex> vertices;
 	std::vector<cell> cells;
 	const int mergeProb = 100;
 	float totalArea;
@@ -66,31 +67,31 @@ public:
 		cells.reserve(n * 2 * n * 3);
 		cells.resize(n * 2 * n);
 		int nblocks = cells.size();
-		nodes.reserve((n + 1 + n) * (n + 1 + n) + nblocks);// reserve enough for the worst case. we cannot reallocate!
-		nodes.resize((n + 1 + n) * (n + 1 + n));
+		vertices.reserve((n + 1 + n) * (n + 1 + n) + nblocks);// reserve enough for the worst case. we cannot reallocate!
+		vertices.resize((n + 1 + n) * (n + 1 + n));
 
 		float h = std::sqrt(3.f) / 2.f;
-		auto getNode = [this, n](int i, int j, int ii = 0, int jj = 0)->node& {return nodes[(j * 2 + jj) * (n + 1 + n) + (i * 2 + ii)]; };
-		auto middleNode = [](node* nod0, node* nod1)->node& {return *(nod0 + std::distance(nod0, nod1) / 2); };
+		auto getNode = [this, n](int i, int j, int ii = 0, int jj = 0)->vertex& {return vertices[(j * 2 + jj) * (n + 1 + n) + (i * 2 + ii)]; };
+		auto middleNode = [](vertex* nod0, vertex* nod1)->vertex& {return *(nod0 + std::distance(nod0, nod1) / 2); };
 		auto isBorder = [n](int i, int j, int ii = 0, int jj = 0) {return i == 0 || j == 0 || i == n || j == n || (i + j) * 2 + ii + jj == n || (i + j) * 2 + ii + jj == n * 3; };
 		for (int j = 0; j <= n; ++j) {
 			for (int i = 0; i <= n; ++i) {
-				node& nod = getNode(i, j);
+				vertex& nod = getNode(i, j);
 				nod.pos = { i + j * 0.5f,j * h };
 				nod.fixedX = nod.fixedY = isBorder(i, j);
 				if (i > 0) {
-					node& nod = getNode(i, j, -1, 0);
+					vertex& nod = getNode(i, j, -1, 0);
 					nod.pos = (getNode(i - 1, j).pos + getNode(i, j).pos) * 0.5f;
 					if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 				}
 				if (j > 0) {
-					node& nod = getNode(i, j, 0, -1);
+					vertex& nod = getNode(i, j, 0, -1);
 					nod.pos = (getNode(i, j - 1).pos + getNode(i, j).pos) * 0.5f;
 					if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 				}
 				if (j == 0 || i == 0) continue;
 
-				node& nod2 = getNode(i, j, -1, -1);
+				vertex& nod2 = getNode(i, j, -1, -1);
 				nod2.pos = (getNode(i, j - 1, -1, 0).pos + getNode(i, j, -1, 0).pos) * 0.5f;
 				if (isBorder(i, j, -1, -1)) nod2.fixedX = nod2.fixedY = true;
 
@@ -156,7 +157,7 @@ public:
 					}
 					center = center * (1.f / (tri ? 3 : 4));
 					if (tri) {
-						node& centerNode = nodes.emplace_back(node{ .pos = center });
+						vertex& centerNode = vertices.emplace_back(vertex{ .pos = center });
 						int idx[3] = { 0,2,3 };
 						for (int k = 0; k < 3; ++k) {
 							cell& cn = cells.emplace_back();
@@ -170,7 +171,7 @@ public:
 						}
 					}
 					else {
-						node* centerNode = &middleNode(d.corners[0], d.corners[2]);
+						vertex* centerNode = &middleNode(d.corners[0], d.corners[2]);
 						for (int k = 0; k < 4; ++k) {
 							cell& cn = cells.emplace_back();
 							cn.exists = true;
@@ -257,8 +258,8 @@ public:
 					force = { -force.y, force.x };
 				}
 			}
-			for (int j = 0; j < nodes.size(); ++j) {
-				node& k = nodes[j];
+			for (int j = 0; j < vertices.size(); ++j) {
+				vertex& k = vertices[j];
 				if (!k.fixedX)
 					k.pos.x = k.pos.x + k.force.x * 0.2f;
 				if (!k.fixedY)

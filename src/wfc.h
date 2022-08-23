@@ -182,7 +182,7 @@ namespace wfc
 
 	struct gridState{
 
-		Grid const* grid = nullptr;
+		const Grid* grid = nullptr;
 		SegmentPalette const* palette = nullptr;
 		wavefunction wave;
 		superposition allSP;
@@ -199,11 +199,11 @@ namespace wfc
 		// Creates the total superposition for each cell in the grid:
 		void reset(){
 			wave.resize(grid->forAllCells([](auto) {}), allSP);
-			grid->forAllCells([&, counter = 0](Grid::cell const& c)mutable{ c.data = &wave[counter++]; });
+			grid->forAllCells([&, counter = 0](face const& c)mutable{ c.data = &wave[counter++]; });
 		}
 
-		Grid::cell const* getPos(Grid::cell const* p, int d) const {
-			return p->nn[d];
+		const face* getNeighbourFace(face const* p, int d) const {
+			return p->nn[d]==-1?nullptr:&grid->faces[p->nn[d]];
 		}
 
 		bool isCollapsed() const {
@@ -214,9 +214,9 @@ namespace wfc
 			for (auto& a : wave) if (a.size() == 0) return true;
 			return false;
 		}
-		Grid::cell const& getLowestEntropyPos() const {
-			std::vector<Grid::cell const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
-			grid->forAllCells([&](Grid::cell const& c) {
+		const face& getLowestEntropyPos() const {
+			std::vector<face const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
+			grid->forAllCells([&](face const& c) {
 				superposition& sp = *static_cast<superposition*>(c.data);
 				if (sp.size() > 1) {
 					if (sp.size() < minEntropy) minPosis = { &c }, minEntropy = sp.size();
@@ -259,27 +259,27 @@ namespace wfc
 		std::mt19937 rg;
 
 		// Fills the superposition of the slot based on hard conditions. The result is used as the initial state for wfc.
-		void fillOptions(Grid::cell const& c) {
+		void fillOptions(face const& c) {
 			superposition& sp = *static_cast<superposition*>(c.data);
 			sp = state->allSP;
 		}
 
-		void collapse(Grid::cell const& c) {
+		void collapse(face const& c) {
 			superposition& sp = *static_cast<superposition*>(c.data);
 			sp = { sp[rand() % sp.size()] };
 		}
 
-		// Remove options of neighbouring cells that do not fit to any option of the given cell.
-		bool propagate(Grid::cell const& c) {
+		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
+		bool propagate(face const& c) {
 			AutoTimer at(g_timer, _FUNC_);
-			std::map<Grid::cell const*, superposition> backup;
-			uniqueStack<Grid::cell const*> jobs;
+			std::map<face const*, superposition> backup;
+			uniqueStack<face const*> jobs;
 			jobs.push(&c);
 			while (!jobs.empty()) {
-				Grid::cell const* p = jobs.pop();
+				face const* p = jobs.pop();
 				superposition& sp = *static_cast<superposition*>(p->data);
 				for (int d = 0; d < 4; ++d) {
-					if (Grid::cell const* nnp = state->getPos(p, d); nnp != nullptr) {
+					if (face const* nnp = state->getNeighbourFace(p, d); nnp != nullptr) {
 						superposition& nnsp = *static_cast<superposition*>(nnp->data);
 						if (nnsp.size() <= 1) continue;
 						if (!backup.contains(nnp)) backup[nnp] = nnsp;
@@ -293,14 +293,14 @@ namespace wfc
 						if (nnsp.size() == 0) {
 							if (!nnp->touched) {
 								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
-								std::cerr << "re-update neighbour slot to save the wave..." << std::endl;
+								//std::cerr << "re-update neighbour slot to save the wave..." << std::endl;
 								fillOptions(*nnp);
 								nnp->touched = true;
 								if (nnsp != backup[nnp]) {
-									std::cerr << "re-update found new options: ";
-									for (auto& a: nnsp)
-										std::cerr << a << ",";
-									std::cerr << " ->Repeat." << std::endl;
+//									std::cerr << "re-update found new options: ";
+//									for (auto& a: nnsp)
+//										std::cerr << a << ",";
+//									std::cerr << " ->Repeat." << std::endl;
 									backup[nnp] = nnsp;
 									goto erase_neighbours;
 								}
@@ -320,7 +320,7 @@ namespace wfc
 
 		// Fills superpositions of all (touched) slots with the prefiltered options.
 		void fillWave(bool all){
-			state->grid->forAllCells([&, counter=0](Grid::cell const& c)mutable{
+			state->grid->forAllCells([&, counter=0](face const& c)mutable{
 				bool needsUpdate = c.touched||all;
 				if(needsUpdate){// suppose this is a new slot
 					fillOptions(c);
@@ -357,7 +357,7 @@ namespace wfc
 
 
 		// Returns if successfull i.e. not stuck.
-		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
+		bool backtrack_r(int& out_nrecursions, int& out_niters, int stage) {
 			std::string ph = std::string(stage, '|');
 			if (state->isCollapsed())
 				return !state->isStuck();
@@ -368,35 +368,87 @@ namespace wfc
 			if (sp.size() == 1)
 				c.touched = false;
 			superposition backup = sp;
-			std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
-			std::cerr << std::endl;
+			//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
+			//std::cerr << std::endl;
 			std::vector<int> rand_order = sort_shuffle(backup.size(),
 													   [&](int i) {return palette->getOption(i).prio; }, rg);
 			for (int idx : rand_order) {
 				// Make a choice:
 				int a = backup[idx];
 				sp = { a };
-				std::cerr << ph << "choose " << a << std::endl;
+				//std::cerr << ph << "choose " << a << std::endl;
 				if (!propagate(c))
 				{
-					std::cerr << ph << "redone choice " << a << std::endl;
+					//std::cerr << ph << "redone choice " << a << std::endl;
 					continue;
 				}
-				std::cerr << ph << "recursion ->" << std::endl;
+				//std::cerr << ph << "recursion ->" << std::endl;
 				if (!backtrack(out_nrecursions, out_niters, stage + 1))
 				{
-					std::cerr << ph << "backtrace " << a << std::endl;
+					//std::cerr << ph << "backtrace " << a << std::endl;
 					continue;
 				}
-				std::cerr << ph << "success" << std::endl;
+				//std::cerr << ph << "success" << std::endl;
 				return true;
 			}
 			sp = backup;
 			return false;
 		}
 
+		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
+
+			std::stack<int> jobs;
+			jobs.push(0);
+			while(jobs.empty()){
+				jobs.pop();
+
+				std::string ph = std::string(stage, '|');
+				if (state->isCollapsed())
+					return !state->isStuck();
+				out_nrecursions++;
+				const auto& c = state->getLowestEntropyPos();
+				superposition& sp = *static_cast<superposition*>(c.data);
+				//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
+				if (sp.size() == 1)
+					c.touched = false;
+				superposition backup = sp;
+				//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
+				//std::cerr << std::endl;
+				std::vector<int> rand_order = sort_shuffle(backup.size(),
+				                                           [&](int i) {return palette->getOption(i).prio; }, rg);
+				for (int idx : rand_order) {
+					// Make a choice:
+					int a = backup[idx];
+					sp = { a };
+					//std::cerr << ph << "choose " << a << std::endl;
+					if (!propagate(c))
+					{
+						//std::cerr << ph << "redone choice " << a << std::endl;
+						continue;
+					}
+					//std::cerr << ph << "recursion ->" << std::endl;
+
+					if (!backtrack(out_nrecursions, out_niters, stage + 1))
+					{
+						//std::cerr << ph << "backtrace " << a << std::endl;
+						continue;
+					}
+					//std::cerr << ph << "success" << std::endl;
+					return true;
+				}
+				sp = backup;
+				return false;
+			}
+		}
+
+
 		// Solves the wave with backtracking.
-		void solveRecursive() { //, newModuleCB_t&& newMod
+		void solveRecursive(gridState* s) { //, newModuleCB_t&& newMod
+			AutoTimer at(g_timer, _FUNC_);
+
+			state = s;
+			palette = s->palette;
+
 			fillWave(true);
 			auto action = [&]() mutable {
 

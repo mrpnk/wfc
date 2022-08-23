@@ -4,12 +4,14 @@
 
 int main()
 {
-	srand(23);
+	srand(273);
 
 	// In the beginning there was the grid
 	Grid grid;
-	grid.init(5);
-	grid.relax(5);
+	GridGenerator gg;
+	gg.construct(50);
+	gg.relax(10);
+	gg.convert(grid);
 
 	std::ofstream file("grid.txt");
 	grid.print(file);
@@ -29,6 +31,7 @@ int main()
 	// Find a constellation that satisfies all conditions
 	wfc::WaveFunctionCollapser collapser;
 	collapser.solve(&state);
+	//collapser.solveRecursive(&state);
 
 	std::ofstream outfile("canvas.txt");
 	state.printCanvas(outfile, " ");

@@ -23,8 +23,6 @@
 
 namespace wfc
 {
-	namespace fs = std::filesystem;
-
 	template<typename T>
 	class uniqueStack {
 		std::stack<T> st;
@@ -53,25 +51,9 @@ namespace wfc
 	};
 
 
+
 	// ---------------------------------------------------------------------------------------
 	// The segments
-
-	struct colour {
-		float r, g, b;
-		bool operator<(colour const& c) const { return r < c.r ? true : r > c.r ? false : g < c.g ? true : g > c.g ? false : b < c.b; }
-		bool operator==(colour const& c) const = default;
-		friend std::ostream& operator<<(std::ostream& os, colour const& col) { return os << col.r << " " << col.g << " " << col.b; }
-	};
-
-	template<int m> struct segment {
-		colour cols[m * m];
-	};
-
-
-	using superposition = std::vector<int>;
-	using wavefunction = std::vector<superposition>;
-
-
 
 	struct option {
 		int modIdx;
@@ -81,129 +63,54 @@ namespace wfc
 		bool operator==(option const&)const = default;
 	};
 
+	using superposition = std::vector<int>;
+	using wavefunction = std::vector<superposition>;
 
-	class SegmentPalette{
-		static const int m = 6; // tile size per axis in pixels
-		static const int k = 5; // source texture size per axis in tiles
-		static const bool MIRROR = 1;
-
-		using seg = segment<m>;
-		std::vector<seg> modus;
-		std::vector<bool> fitlus;
-		std::vector<option> allOptions;
-
-		inline int faceElemIdx(int side, int i) const {
-			int indices[4] = { i,m - 1 + i * m,m * m - 1 - i,(m - 1 - i) * m };
-			return indices[side];
-		}
-
-
-		// Returns whether the two segments fit together with the given sides.
-		bool fit(seg const& mod1, int s1, seg const& mod2, int s2, bool mirror) const {
-			for (int i = 0; i < m; ++i)
-				if (mod1.cols[faceElemIdx(s1, i)] != mod2.cols[faceElemIdx(s2, mirror ? i : m - 1 - i)])
-					return false;
-			return true;
-		}
-
-		// Computes the lookup table that stores which segments fit together.
-		void computeFitLU() {
-			AutoTimer at(g_timer, _FUNC_);
-			for (int mod1 = 0; mod1 < modus.size(); ++mod1) {
-				for (int s1 = 0; s1 < 4; ++s1) {
-					for (int mod2 = 0; mod2 < modus.size(); ++mod2) {
-						for (int s2 = 0; s2 < 4; ++s2) {
-							for (int mirrorX = 0; mirrorX <= MIRROR; ++mirrorX)
-								fitlus[(((mod1 * 4 + s1) * modus.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirrorX] = fit(modus[mod1], s1, modus[mod2], s2, (bool)mirrorX);
-						}
-					}
-				}
-			}
-		}
-
-		inline bool fitlu(int mod1, int s1, int mod2, int s2, bool mirror) const {
-			return fitlus[(((mod1 * 4 + s1) * modus.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirror];
-		}
-		inline bool fitlu(int mod1, int rot1, bool mirror1, int side1, int mod2, int rot2, bool mirror2) const {
-			int s1 = (side1 - rot1 + 4) % 4, s2 = (3 - side1 - rot2 + 4) % 4;
-			if (mirror1) { s1 = (4 - s1) % 4; }
-			if (mirror2) { s2 = (4 - s2) % 4; }
-			return fitlu(mod1, s1, mod2, s2, mirror1 ^ mirror2);
-		}
-
+	class SegmentPalette {
 	public:
-		void load(fs::path filename){
-			AutoTimer at(g_timer, _FUNC_);
-			const int nmodus = k * k;
-			const int noptions = nmodus * 4 * (MIRROR + 1);
-			modus.resize(nmodus);
-			allOptions.resize(noptions);
-			fitlus.resize((nmodus * 4) * (nmodus * 4) * (MIRROR + 1));
-
-			if(fs::exists(filename)){
-				std::ifstream infile(filename, std::ios::binary);
-				colour imagedata[m * m * k * k];
-				infile.read((char*)(imagedata), sizeof(imagedata));
-				infile.close();
-				for (int i = 0; i < k; ++i) {
-					for (int j = 0; j < k; ++j) {
-						for (int a = 0; a < m; ++a)
-							for (int b = 0; b < m; ++b)
-								modus[(i * k + j)].cols[a * m + b] = imagedata[m * m * k * i + m * j + m * k * a + b];
-					}
-				}
-				for (int i = 0; i < modus.size(); ++i)
-					for (short r = 0; r < 4; ++r)
-						for (short mirr = 0; mirr <= MIRROR; ++mirr)
-							allOptions[(i * 4 + r) * (MIRROR + 1) + mirr] = { i,r,(bool)mirr };
-				computeFitLU();
-			}
-			else std::cout<< "Could not find segment file " << filename << std::endl;
-		}
-		option const& getOption(int i) const {
-			return allOptions[i];
-		}
-		int getNumOptions() const {
-			return allOptions.size();
-		}
-		inline bool isPossibleNeighbour(superposition const& sp, int dir, option const& other_opt) const {
-			for (int i : sp)
-				if (const option& own_opt = allOptions[i];
-						fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-						      other_opt.modIdx, other_opt.rot, other_opt.mirrorX))
-					return true;
-			return false;
-		}
+		virtual int getNumOptions() const = 0;
+		virtual option const& getOption(int i) const = 0;
+		virtual inline bool isPossibleNeighbour(superposition const& sp, int dir, option const& other_opt) const = 0;
 	};
-
 
 	// ---------------------------------------------------------------------------------------
 	// The possibilities
 
+	template<class grid_t>
 	struct gridState{
-
-		const Grid* grid = nullptr;
-		SegmentPalette const* palette = nullptr;
+		using face_t = typename grid_t::face_t;
+		const grid_t* grid = nullptr;
+		const SegmentPalette* palette = nullptr;
 		wavefunction wave;
 		superposition allSP;
 
-		void init(Grid const* g, SegmentPalette const* p){
+		struct faceInfo{
+			bool dirty = false;
+		};
+		std::vector<faceInfo> faceInfos;
+
+		void init(grid_t const* g, SegmentPalette const* p){
 			grid = g;
 			palette = p;
 
-			allSP.resize(palette->getNumOptions()); std::iota(std::begin(allSP), std::end(allSP), 0);
+			allSP.resize(palette->getNumOptions());
+			std::iota(std::begin(allSP), std::end(allSP), 0);
 
-			reset();
+			// Creates the total superposition for each cell in the grid:
+			wave.resize(g->faces.size(), allSP);
+			faceInfos.resize(g->faces.size());
 		}
 
-		// Creates the total superposition for each cell in the grid:
-		void reset(){
-			wave.resize(grid->forAllCells([](auto) {}), allSP);
-			grid->forAllCells([&, counter = 0](face const& c)mutable{ c.data = &wave[counter++]; });
+		auto& getOptions(this auto&& self, face_t const* f) {
+			return self.wave[f - self.grid->faces.data()];
 		}
 
-		const face* getNeighbourFace(face const* p, int d) const {
-			return p->nn[d]==-1?nullptr:&grid->faces[p->nn[d]];
+		auto& getInfo(this auto&& self, face_t const* f) {
+			return self.faceInfos[f - self.grid->faces.data()];
+		}
+
+		const face_t* getNeighbourFace(face_t const* p, int d) const {
+			return p->neighbours[d] == -1 ? nullptr : &grid->faces[p->neighbours[d]];
 		}
 
 		bool isCollapsed() const {
@@ -214,10 +121,10 @@ namespace wfc
 			for (auto& a : wave) if (a.size() == 0) return true;
 			return false;
 		}
-		const face& getLowestEntropyPos() const {
-			std::vector<face const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
-			grid->forAllCells([&](face const& c) {
-				superposition& sp = *static_cast<superposition*>(c.data);
+		const face_t& getLowestEntropyPos() const {
+			std::vector<face_t const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
+			grid->forAllCells([&, this](face_t const& c) {
+				const superposition& sp = this->getOptions(&c);
 				if (sp.size() > 1) {
 					if (sp.size() < minEntropy) minPosis = { &c }, minEntropy = sp.size();
 					else if (sp.size() == minEntropy) minPosis.push_back(&c);
@@ -252,35 +159,38 @@ namespace wfc
 	// ---------------------------------------------------------------------------------------
 	// The algorithm
 
+	template<class grid_t>
 	class WaveFunctionCollapser
 	{
-		gridState* state;
+		using face_t = typename grid_t::face_t;
+		using state_t = typename gridState<grid_t>;
+		state_t* state;
 		SegmentPalette const* palette;
 		std::mt19937 rg;
 
+
 		// Fills the superposition of the slot based on hard conditions. The result is used as the initial state for wfc.
-		void fillOptions(face const& c) {
-			superposition& sp = *static_cast<superposition*>(c.data);
-			sp = state->allSP;
+		void fillOptions(face_t const& c) {
+			state->getOptions(&c) = state->allSP;
 		}
 
-		void collapse(face const& c) {
-			superposition& sp = *static_cast<superposition*>(c.data);
+		void collapse(face_t const& c) {
+			superposition& sp = state->getOptions(&c);
 			sp = { sp[rand() % sp.size()] };
 		}
 
 		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
-		bool propagate(face const& c) {
+		bool propagate(face_t const& c) {
 			AutoTimer at(g_timer, _FUNC_);
-			std::map<face const*, superposition> backup;
-			uniqueStack<face const*> jobs;
+			std::map<face_t const*, superposition> backup;
+			uniqueStack<face_t const*> jobs;
 			jobs.push(&c);
 			while (!jobs.empty()) {
-				face const* p = jobs.pop();
-				superposition& sp = *static_cast<superposition*>(p->data);
+				const face_t* p = jobs.pop();
+				superposition& sp = state->getOptions(p);
 				for (int d = 0; d < 4; ++d) {
-					if (face const* nnp = state->getNeighbourFace(p, d); nnp != nullptr) {
-						superposition& nnsp = *static_cast<superposition*>(nnp->data);
+					if (const face_t* nnp = state->getNeighbourFace(p, d); nnp != nullptr) {
+						superposition& nnsp = state->getOptions(nnp);
 						if (nnsp.size() <= 1) continue;
 						if (!backup.contains(nnp)) backup[nnp] = nnsp;
 
@@ -291,11 +201,12 @@ namespace wfc
 							jobs.push(nnp);
 
 						if (nnsp.size() == 0) {
-							if (!nnp->touched) {
+							auto fi = state->getInfo(nnp);
+							if (!fi.dirty) {
 								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
 								//std::cerr << "re-update neighbour slot to save the wave..." << std::endl;
 								fillOptions(*nnp);
-								nnp->touched = true;
+								fi.dirty = true;
 								if (nnsp != backup[nnp]) {
 //									std::cerr << "re-update found new options: ";
 //									for (auto& a: nnsp)
@@ -313,15 +224,15 @@ namespace wfc
 
 			undo_propagate:
 			for (auto& p: backup) {
-				*static_cast<superposition*>(p.first->data) = p.second;
+				state->getOptions(p.first) = p.second;
 			}
 			return false;
 		}
 
 		// Fills superpositions of all (touched) slots with the prefiltered options.
 		void fillWave(bool all){
-			state->grid->forAllCells([&, counter=0](face const& c)mutable{
-				bool needsUpdate = c.touched||all;
+			state->grid->forAllCells([&, counter=0](face_t const& c)mutable{
+				bool needsUpdate = state->getInfo(&c).dirty || all;
 				if(needsUpdate){// suppose this is a new slot
 					fillOptions(c);
 				}
@@ -339,7 +250,7 @@ namespace wfc
 		}
 
 	public:
-		void solve(gridState* s) {
+		void solve(state_t* s) {
 			AutoTimer at(g_timer, _FUNC_);
 
 			state = s;
@@ -357,16 +268,16 @@ namespace wfc
 
 
 		// Returns if successfull i.e. not stuck.
-		bool backtrack_r(int& out_nrecursions, int& out_niters, int stage) {
+		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
 			std::string ph = std::string(stage, '|');
 			if (state->isCollapsed())
 				return !state->isStuck();
 			out_nrecursions++;
 			const auto& c = state->getLowestEntropyPos();
-			superposition& sp = *static_cast<superposition*>(c.data);
+			superposition& sp = state->getOptions(&c);
 			//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
 			if (sp.size() == 1)
-				c.touched = false;
+				state->getInfo(&c).dirty = false;
 			superposition backup = sp;
 			//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
 			//std::cerr << std::endl;
@@ -395,55 +306,10 @@ namespace wfc
 			return false;
 		}
 
-		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
-
-			std::stack<int> jobs;
-			jobs.push(0);
-			while(jobs.empty()){
-				jobs.pop();
-
-				std::string ph = std::string(stage, '|');
-				if (state->isCollapsed())
-					return !state->isStuck();
-				out_nrecursions++;
-				const auto& c = state->getLowestEntropyPos();
-				superposition& sp = *static_cast<superposition*>(c.data);
-				//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
-				if (sp.size() == 1)
-					c.touched = false;
-				superposition backup = sp;
-				//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
-				//std::cerr << std::endl;
-				std::vector<int> rand_order = sort_shuffle(backup.size(),
-				                                           [&](int i) {return palette->getOption(i).prio; }, rg);
-				for (int idx : rand_order) {
-					// Make a choice:
-					int a = backup[idx];
-					sp = { a };
-					//std::cerr << ph << "choose " << a << std::endl;
-					if (!propagate(c))
-					{
-						//std::cerr << ph << "redone choice " << a << std::endl;
-						continue;
-					}
-					//std::cerr << ph << "recursion ->" << std::endl;
-
-					if (!backtrack(out_nrecursions, out_niters, stage + 1))
-					{
-						//std::cerr << ph << "backtrace " << a << std::endl;
-						continue;
-					}
-					//std::cerr << ph << "success" << std::endl;
-					return true;
-				}
-				sp = backup;
-				return false;
-			}
-		}
 
 
 		// Solves the wave with backtracking.
-		void solveRecursive(gridState* s) { //, newModuleCB_t&& newMod
+		void solveRecursive(state_t* s) { //, newModuleCB_t&& newMod
 			AutoTimer at(g_timer, _FUNC_);
 
 			state = s;

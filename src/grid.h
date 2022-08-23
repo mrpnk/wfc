@@ -24,82 +24,118 @@ struct v2{
 };
 
 
-//
-//template<int N>
-//struct always;
-//
-//template<int N>
-//struct upTo;
-//
-//
-//template<typename T>
-//struct vertex;
-//
-//
-//template<int N>
-//struct vertex<always<N>>{
-//	v2 pos;
-//	int neighbours[N];
-//};
-//
-//template<int N>
-//struct vertex<upTo<N>> : private vertex<always<N>>{
-//	int num;
-//};
-//
-//vertex<always<4>> sdf;
-//vertex<upTo<4>> sddf;
-//
+template<int N> struct always;
+template<int N> struct upto;
 
 using vert_id = int;
 using face_id = int;
 
-struct vertex {
+template<typename NFaces> struct vertex;
+template<int N> struct vertex<always<N>>{
 	v2 pos;
-	unsigned short nAdjacentFaces = 0;
-	face_id adjacentFaces[6];
+	face_id faces[N];
+	vert_id neighbours[N];
+	constexpr int getNumFaces() const {return N;}
+	void setNumFaces(int n) { assert(n==N); }
 };
-struct face {
-	vert_id corners[4];
-	face_id nn[4];
-	mutable void* data = nullptr;
-	mutable bool touched = false;
+template<int N> struct vertex<upto<N>> : public vertex<always<N>>{
+	unsigned short nFaces = 0;
+	int getNumFaces() const {return nFaces;}
+	void setNumFaces(int n) { nFaces = n; }
 };
 
-struct Grid {
-	std::vector<vertex> vertices;
-	std::vector<face> faces;
 
+template<typename NVertices> struct face;
+template<int N> struct face<always<N>>{
+	v2 centre;
+	vert_id corners[N];
+	face_id neighbours[N];
+	constexpr int getNumCorners() const {return N;}
+	void setNumCorners(int n) { assert(n==N); }
+};
+template<int N> struct face<upto<N>> : public face<always<N>>{
+	unsigned short nCorners = 0;
+	int getNumCorners() const {return nCorners;}
+	void setNumCorners(int n) { nCorners = n; }
+};
+
+
+template<typename NVertexFaces, typename NFaceVertices>
+struct grid {
+	using vertex_t = vertex<NVertexFaces>;
+	using face_t = face<NFaceVertices>;
+	std::vector<vertex_t> vertices;
+	std::vector<face_t> faces;
+
+
+	void clear(){
+		vertices.clear();
+		faces.clear();
+	}
 
 	template<typename CB>
 	int forAllCells(CB&& cb) const {
-		int counter = 0;
-		for (face const& c : faces) {
-			//if (!c.exists) continue;
-			cb(c);
+		int counter{0};
+		for (face_t const& f : faces) {
+			cb(f);
 			counter++;
 		}
 		return counter;
 	}
 
-	void print(std::ostream& os) {
-		for (face& c : faces) {
-			//if (!c.exists) continue;
-			for (int k = 0; k < 4; ++k)
-				os << vertices[c.corners[k]].pos << " ";
-			os << 0 << " ";
-			os << std::endl;
+	void print(std::ostream& os) const {
+		for (const face_t& f : faces) {
+			for (int k = 0; k < f.getNumCorners(); ++k)
+				if(f.corners[k] != -1)
+					os << vertices[f.corners[k]].pos << " ";
+			if(f.getNumCorners()>0) os << std::endl;
 		}
 	}
 };
 
-class GridGenerator{
-	struct c_vertex : public vertex{
+// Computes the dual grid. Is an involution.
+template<typename NVertexFaces, typename NFaceVertices>
+void computeDualGrid(grid<NVertexFaces,NFaceVertices> const& src, grid<NFaceVertices,NVertexFaces>& dst) {
+	dst.clear();
+	dst.faces.resize(src.vertices.size());
+	dst.vertices.resize(src.faces.size());
+	// The old vertices become the new faces
+	for (int i = 0; i < src.vertices.size(); ++i) {
+		dst.faces[i].centre = src.vertices[i].pos;
+		dst.faces[i].setNumCorners(src.vertices[i].getNumFaces());
+		for (int j = 0; j < src.vertices[i].getNumFaces(); ++j) {
+			dst.faces[i].corners[j] = src.vertices[i].faces[j];
+			dst.faces[i].neighbours[j] = src.vertices[i].neighbours[j];
+		}
+	}
+	// The old faces become the new vertices
+	for (int i = 0; i < src.faces.size(); ++i) {
+		dst.vertices[i].pos = src.faces[i].centre;
+		dst.vertices[i].setNumFaces(src.faces[i].getNumCorners());
+		for (int j = 0; j < src.faces[i].getNumCorners(); ++j) {
+			dst.vertices[i].faces[j] = src.faces[i].corners[j];
+			dst.vertices[i].neighbours[j] = src.faces[i].neighbours[j];
+		}
+	}
+}
+
+
+template<class Grid>
+class GridGenerator {
+public:
+	using grid_t = Grid;
+	virtual void convert(grid_t& g) const = 0;
+};
+
+
+class HexQuadGenerator : public GridGenerator<grid<upto<6>,always<4>>> {
+
+	struct c_vertex : public grid_t::vertex_t {
 		v2 force;
 		bool fixedX = false;
 		bool fixedY = false;
 	};
-	struct c_face : public face {
+	struct c_face : public grid_t::face_t {
 		bool exists = false;
 	};
 
@@ -109,6 +145,16 @@ class GridGenerator{
 	const int mergeProb = 100;
 	float totalArea;
 
+	void sortFacesCircular() {
+		for (auto& v : vertices) {
+			if(v.getNumFaces() > 2)
+			std::sort(v.faces, v.faces + v.getNumFaces(), [&v, this](face_id a, face_id b) {
+				auto pa = faces[a].centre - v.pos;
+				auto pb = faces[b].centre - v.pos;
+				return std::atan2(pa.x,pa.y) < std::atan2(pb.x,pb.y);
+			});
+		}
+	}
 
 public:
 	/*  Example for argument n=1:
@@ -237,7 +283,7 @@ public:
 							cn.corners[2] = d.corners[idx[k]];
 							cn.corners[3] = middleNode(d.corners[idx[k]], d.corners[idx[(k + 1) % 3]]);
 							for (int kk = 0; kk < 4; ++kk)
-								vertices[cn.corners[kk]].adjacentFaces[vertices[cn.corners[kk]].nAdjacentFaces++] = cnIdx;
+								vertices[cn.corners[kk]].faces[vertices[cn.corners[kk]].nFaces++] = cnIdx;
 						}
 					}
 					else {
@@ -252,7 +298,7 @@ public:
 							cn.corners[2] = d.corners[k];
 							cn.corners[3] = middleNode(d.corners[k], d.corners[(k + 1) % 4]);
 							for (int kk = 0; kk < 4; ++kk)
-								vertices[cn.corners[kk]].adjacentFaces[vertices[cn.corners[kk]].nAdjacentFaces++] = cnIdx;
+								vertices[cn.corners[kk]].faces[vertices[cn.corners[kk]].nFaces++] = cnIdx;
 						}
 					}
 					d.exists = false;
@@ -270,15 +316,14 @@ public:
 
 
 		// Use node information to find the neighbours of each cell:
-		int haven[5] = { 0,0,0,0,0 };
 		for (c_face& fa : faces) {
 			if (!fa.exists) continue;
 			int nnn = 0;
 			for (int kk = 0; kk < 4; ++kk) {
-				fa.nn[kk] = -1;
+				fa.neighbours[kk] = -1;
 				const auto& v = vertices[fa.corners[kk]];
-				for (int xy = 0; xy < v.nAdjacentFaces; ++xy) {
-					face_id otherface = v.adjacentFaces[xy];
+				for (int xy = 0; xy < v.nFaces; ++xy) {
+					face_id otherface = v.faces[xy];
 					if (&faces[otherface] == &fa) continue;
 					bool touches = false;
 					for (int kk2 = 0; kk2 < 4; ++kk2) {
@@ -289,15 +334,29 @@ public:
 					}
 					if (touches){
 						nnn++;
-						fa.nn[kk] = otherface;
+						fa.neighbours[kk] = otherface;
 						break;
 					}
 				}
 			}
-			haven[nnn]++;
 		}
-//		for (int i = 0; i <= 4; ++i)
-//			std::cout << "have " << i << ": " << haven[i] << std::endl;
+
+		// Compute face centres
+		for (c_face& f : faces) {
+			f.centre = {0, 0};
+			int nCorners = 0;
+			for (int i = 0; i < f.getNumCorners(); ++i)
+				if (f.corners[i] >= 0) {
+					f.centre = f.centre + vertices[f.corners[i]].pos;
+					nCorners++;
+				}
+			f.centre = f.centre * (1.f / nCorners);
+		}
+
+		// Make sure that the faces of each vertex are ordered circularly. This will make the dual grid trivially drawable.
+		// Despite all the nice properties of the primal grid, there seems no good way to label the edges of the dual grid.
+		// This manual sorting is therefore a quick fix until something better is found. int nTotalHoursWastedHere = 6;
+		sortFacesCircular();
 
 		totalArea = std::sqrt(3.f) * 3 / 2 * n * n / 4;
 	}
@@ -343,7 +402,7 @@ public:
 	}
 
 
-	void convert(Grid& g) const {
+	void convert(grid_t& g) const override {
 		// We want to filter the non-existent faces.
 		// Create a map from old to new face indices:
 		std::vector<face_id> ids(faces.size(), 1);
@@ -351,31 +410,154 @@ public:
 			ids[i] = faces[i].exists;
 		std::exclusive_scan(ids.begin(), ids.end(), ids.begin(), 0);
 
+		g.clear();
 		g.vertices.resize(vertices.size());
 		g.faces.reserve(ids.back());
 
 		auto convertVertex = [&ids](c_vertex const& cv){
-			vertex v = cv;
-			for(int i =0; i< v.nAdjacentFaces; ++i)
-				v.adjacentFaces[i] = ids[v.adjacentFaces[i]];
+			grid_t::vertex_t v = cv;
+			for(int i =0; i< v.nFaces; ++i)
+				v.faces[i] = ids[v.faces[i]];
 			return v;
 		};
-		auto convertFace = [&ids](c_face const& cf){
+		auto convertFace = [&ids, this](c_face const& cf) {
 			face f = cf;
-			for(int i =0; i < 4; ++i)
-				if(f.nn[i] >=0) f.nn[i] = ids[f.nn[i]];
+			for (int i = 0; i < cf.getNumCorners(); ++i){
+				if (f.neighbours[i] >= 0) {
+					f.neighbours[i] = ids[f.neighbours[i]];
+				}
+			}
 			return f;
 		};
 
-
-
 		std::transform(vertices.begin(), vertices.end(), g.vertices.begin(), convertVertex);
-	//	std::transform(faces.begin(), faces.end(), g.faces.begin(), convertFace);
 
 		for(auto a : faces | std::views::filter([](c_face const& cf){return cf.exists;}) | std::views::transform(convertFace))
 			g.faces.push_back(a);
 
-		//c_face test{.exists = true, .pos = {23,345}};
+	}
+
+};
+
+class SquareGenerator : public GridGenerator<grid<always<4>,always<4>>> {
+
+	struct c_vertex : public grid_t::vertex_t {
+	};
+	struct c_face : public grid_t::face_t {
+	};
+
+	std::vector<c_vertex> vertices;
+	std::vector<c_face> faces;
+
+public:
+	/*  Example for argument n=1:
+	 *
+	 *      i=0       i=1       i=2
+	 *  j=0  0---------1---------2
+	 *       |         |         |
+	 *       |         |         |
+	 *       |         |         |
+	 *  j=1  3---------4---------5
+	 *       |         |         |
+	 *       |         |         |
+	 *       |         |         |
+	 *  j=2  6---------7---------8
+	 */
+	void construct(int n) {
+		AutoTimer at(g_timer, _FUNC_);
+
+		faces.resize(n * n);
+		vertices.resize((n + 1) * (n + 1));
+
+		for (auto& a: vertices)
+			for (int i = 0; i < 4; ++i)
+				a.faces[i] = -1;
+
+		auto getNode = [this, n](int i, int j) -> c_vertex& { return vertices[j * (n + 1) + i]; };
+		auto getNodeIdx = [n](int i, int j) -> vert_id { return j * (n + 1) + i; };
+		for (int j = 0; j <= n; ++j) {
+			for (int i = 0; i <= n; ++i) {
+				auto& nod = getNode(i, j);
+				nod.pos = {(float) i, (float) j};
+
+				if (j == 0 || i == 0) continue;
+
+				// Create a new face
+				face_id fid = (i - 1) + n * (j - 1);
+				c_face& f0 = faces[fid];
+				f0.corners[0] = getNodeIdx(i - 1, j - 1);
+				f0.corners[1] = getNodeIdx(i, j - 1);
+				f0.corners[3] = getNodeIdx(i - 1, j);
+				f0.corners[2] = getNodeIdx(i, j);
+				for (int kk = 0; kk < 4; ++kk)
+					vertices[f0.corners[kk]].faces[(kk + 2) % 4] = fid;
+			}
+		}
+
+
+		// Use node information to find the neighbours of each cell:
+		for (c_face& f : faces) {
+			for (int kk = 0; kk < f.getNumCorners(); ++kk) {
+				f.neighbours[kk] = -1;
+				const auto& v = vertices[f.corners[kk]];
+				for (int xy = 0; xy < v.getNumFaces(); ++xy) {
+					if (v.faces[xy] == -1) continue;
+					const c_face& otherface = faces[v.faces[xy]];
+					if (&otherface == &f) continue;
+					bool touches = false;
+					for (int kk2 = 0; kk2 < 4; ++kk2) {
+						if (otherface.corners[kk2] == f.corners[(kk + 1) % 4]) {
+							touches = true;
+							break;
+						}
+					}
+					if (touches) {
+						f.neighbours[kk] = &otherface - faces.data();
+						break;
+					}
+				}
+			}
+		}
+
+		// Compute face centres
+		for (c_face& f : faces) {
+			f.centre = {0, 0};
+			int nCorners = 0;
+			for (int i = 0; i < f.getNumCorners(); ++i)
+				if (f.corners[i] >= 0) {
+					f.centre = f.centre + vertices[f.corners[i]].pos;
+					nCorners++;
+				}
+			f.centre = f.centre * (1.f / nCorners);
+		}
+	}
+
+
+	void convert(grid_t& g) const override {
+		// We want to filter the non-existent faces.
+		// Create a map from old to new face indices:
+
+		g.clear();
+		g.vertices.resize(vertices.size());
+		g.faces.reserve(faces.size());
+
+		auto convertVertex = [](c_vertex const& cv){
+			grid_t::vertex_t v = cv;
+			for(int i =0; i < v.getNumFaces(); ++i)
+				v.faces[i] = v.faces[i];
+			return v;
+		};
+		auto convertFace = [this](c_face const& cf){
+			grid_t::face_t f = cf;
+			return f;
+		};
+
+
+		std::transform(vertices.begin(), vertices.end(), g.vertices.begin(), convertVertex);
+		//	std::transform(faces.begin(), faces.end(), g.faces.begin(), convertFace);
+
+		for(auto a : faces | std::views::transform(convertFace))
+			g.faces.push_back(a);
 
 	}
 

@@ -38,6 +38,17 @@ class Timer
 	std::map<std::string, Entry*> entries;
 	Entry* current = nullptr;
 
+	bool hideTemplateArgs = true;
+	std::string makeNiceName(std::string name) const {
+		if(!hideTemplateArgs)
+			return name;
+		auto a = name.find('<');
+		auto b = name.rfind('>'); // todo
+		if(a != std::string::npos && b != std::string::npos)
+			return name.erase(a,b-a+1);
+		return name;
+	}
+
 public:
 	Timer()
 	{
@@ -85,10 +96,10 @@ public:
 		using namespace std;
 		cout << endl << string(80, '=') << endl;
 		cout << left << setw(46) << "Function" << " : " << right << setw(8) << "Count" << " | " << right << setw(8) << "Time [s]" << " | " << right << "Time/Call" << endl;
-		std::function<void(Entry*,int)> printEntry = [&](Entry* e, int level) 
+		std::function<void(Entry*,int)> printEntry = [&](Entry* e, int level)
 		{
 			if (!e->fullName.empty())
-				cout << left << setw(46) << std::string(3 * std::max(0,level - 1), ' ') + (level ? "|->" : "") + e->name <<
+				cout << left << setw(46) << std::string(3 * std::max(0,level - 1), ' ') + (level ? "|->" : "") + makeNiceName(e->name) <<
 				" : " << right << setw(8) << e->count << " | " << right << fixed << setprecision(6) << e->time << " | " << right << fixed << setprecision(6) << (e->time/e->count) << endl;
 			for (const auto& a : e->children) { printEntry(a, level + 1); }
 		};

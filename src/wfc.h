@@ -19,7 +19,7 @@
 #include <mutex>
 #include <filesystem>
 #include <random>
-
+#include <bitset>
 
 namespace wfc
 {
@@ -37,7 +37,7 @@ namespace wfc
 			se.insert(i);
 			return true;
 		}
-		bool empty() { return st.empty(); }
+		bool empty() const { return st.empty(); }
 		T pop() {
 			auto temp = st.top();
 			st.pop();
@@ -63,7 +63,7 @@ namespace wfc
 		bool operator==(option const&)const = default;
 	};
 
-	using superposition = std::vector<int>;
+	using superposition = std::bitset<200>;
 	using wavefunction = std::vector<superposition>;
 
 	class SegmentPalette {
@@ -93,8 +93,8 @@ namespace wfc
 			grid = g;
 			palette = p;
 
-			allSP.resize(palette->getNumOptions());
-			std::iota(std::begin(allSP), std::end(allSP), 0);
+			allSP.set();
+			assert(allSP.size() >= palette->getNumOptions());
 
 			// Creates the total superposition for each cell in the grid:
 			wave.resize(g->faces.size(), allSP);
@@ -114,40 +114,45 @@ namespace wfc
 		}
 
 		bool isCollapsed() const {
-			for (auto& a : wave) if (a.size() == 0) return true; else if (a.size() > 1) return false;
+			for (auto& sp : wave) if (sp.none()) return true; else if (sp.count() > 1) return false;
 			return true;
 		}
 		bool isStuck() const {
-			for (auto& a : wave) if (a.size() == 0) return true;
+			for (auto& sp : wave) if (sp.none()) return true;
 			return false;
 		}
 		const face_t& getLowestEntropyPos() const {
 			std::vector<face_t const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
-			grid->forAllCells([&, this](face_t const& c) {
+			grid->forAllFaces([&, this](face_t const& c) {
 				const superposition& sp = this->getOptions(&c);
-				if (sp.size() > 1) {
-					if (sp.size() < minEntropy) minPosis = { &c }, minEntropy = sp.size();
-					else if (sp.size() == minEntropy) minPosis.push_back(&c);
+				if (sp.count() > 1) {
+					if (sp.count() < minEntropy) minPosis = { &c }, minEntropy = sp.count();
+					else if (sp.count() == minEntropy) minPosis.push_back(&c);
 				}
 			});
 			return *minPosis[rand() % minPosis.size()];
 		}
 		bool isAnyMirrored() const {
-			for (auto& a : wave)
-				for (auto& b : a)
-					if (palette->getOption(b).mirrorX)
-						return true;
+			for (auto& sp : wave)
+				for (int i = 0; i < sp.size(); ++i)
+					if(sp.test(i))
+						if (palette->getOption(i).mirrorX)
+							return true;
 			return false;
 		}
 
 
 		void printCanvas(std::ostream& os, std::string sep = "") const {
 			for (auto& sp : wave) {
-				if (sp.size() != 1)
+				if (sp.count() != 1)
 					os << "-1 0 0" << sep;
 				else {
-					const option& opt = palette->getOption(sp[0]);
-					os << opt.modIdx << " " << opt.rot << " " << opt.mirrorX << sep;
+					for(int i = 0; i< sp.size(); ++i)
+						if(sp.test(i)){
+							const option& opt = palette->getOption(i);
+							os << opt.modIdx << " " << opt.rot << " " << opt.mirrorX << sep;
+							break;
+						}
 				}
 				os << std::endl;
 			}
@@ -176,7 +181,14 @@ namespace wfc
 
 		void collapse(face_t const& c) {
 			superposition& sp = state->getOptions(&c);
-			sp = { sp[rand() % sp.size()] };
+			std::vector<int> sets;
+			for(int i = 0; i< sp.size();++i){
+				if(sp.test(i)){
+					sets.push_back(i);
+				}
+			}
+			sp.reset();
+			sp.set(sets[rand() % sets.size()]);
 		}
 
 		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
@@ -191,16 +203,29 @@ namespace wfc
 				for (int d = 0; d < 4; ++d) {
 					if (const face_t* nnp = state->getNeighbourFace(p, d); nnp != nullptr) {
 						superposition& nnsp = state->getOptions(nnp);
-						if (nnsp.size() <= 1) continue;
+						if (nnsp.count() <= 1) continue;
 						if (!backup.contains(nnp)) backup[nnp] = nnsp;
 
 						erase_neighbours:
-						if (std::erase_if(nnsp, [&](int& other_opt) {
-							return !palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt));
-						}))
+//						if (std::erase_if(nnsp, [&](int& other_opt) {
+//							return !palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt));
+//						}))
+//							jobs.push(nnp);
+
+						int nErased = 0;
+						for(int other_opt = 0; other_opt < nnsp.size(); ++other_opt){
+							if(nnsp.test(other_opt)) {
+								if(!palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt))){
+									nnsp.flip(other_opt);
+									nErased++;
+								}
+							}
+						}
+						if(nErased)
 							jobs.push(nnp);
 
-						if (nnsp.size() == 0) {
+
+						if (nnsp.count() == 0) {
 							auto fi = state->getInfo(nnp);
 							if (!fi.dirty) {
 								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
@@ -231,7 +256,7 @@ namespace wfc
 
 		// Fills superpositions of all (touched) slots with the prefiltered options.
 		void fillWave(bool all){
-			state->grid->forAllCells([&, counter=0](face_t const& c)mutable{
+			state->grid->forAllFaces([&, counter=0](face_t const& c)mutable{
 				bool needsUpdate = state->getInfo(&c).dirty || all;
 				if(needsUpdate){// suppose this is a new slot
 					fillOptions(c);
@@ -276,7 +301,7 @@ namespace wfc
 			const auto& c = state->getLowestEntropyPos();
 			superposition& sp = state->getOptions(&c);
 			//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
-			if (sp.size() == 1)
+			if (sp.count() == 1)
 				state->getInfo(&c).dirty = false;
 			superposition backup = sp;
 			//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
@@ -286,7 +311,9 @@ namespace wfc
 			for (int idx : rand_order) {
 				// Make a choice:
 				int a = backup[idx];
-				sp = { a };
+				sp.reset();
+				sp.set(a);
+
 				//std::cerr << ph << "choose " << a << std::endl;
 				if (!propagate(c))
 				{
@@ -320,7 +347,7 @@ namespace wfc
 
 //				// Map the intern wave function to the grid slots:
 //				wavefunction gridwave(gs..getNumCells() * 8);
-//				g.forAllCells([&, counter = 0](Cell&, int, slot& s)mutable{
+//				g.forAllFaces([&, counter = 0](Cell&, int, slot& s)mutable{
 //					gridwave[counter++] = &s.sp;
 //				});
 

@@ -74,7 +74,7 @@ struct grid {
 	}
 
 	template<typename CB>
-	int forAllCells(CB&& cb) const {
+	int forAllFaces(CB&& cb) const {
 		int counter{0};
 		for (face_t const& f : faces) {
 			cb(f);

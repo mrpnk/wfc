@@ -93,15 +93,17 @@ public:
 	int getNumOptions() const override {
 		return allOptions.size();
 	}
-	wfc::option const& getOption(int i) const override {
+	const wfc::option& getOption(int i) const override {
 		return allOptions[i];
 	}
 	inline bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& other_opt) const override {
-		for (int i : sp)
-			if (const wfc::option& own_opt = allOptions[i];
-					fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-					      other_opt.modIdx, other_opt.rot, other_opt.mirrorX))
-				return true;
+		for (int i = 0; i < sp.size(); ++i)
+			if(sp.test(i)){
+				if (const wfc::option& own_opt = allOptions[i];
+						fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
+						      other_opt.modIdx, other_opt.rot, other_opt.mirrorX))
+					return true;
+			}
 		return false;
 	}
 };

@@ -233,7 +233,7 @@ int main()
 		grid_t primal;
 
 		HexQuadGenerator generator;
-		generator.construct(5);
+		generator.generate(50);
 		generator.relax(10);
 		generator.convert(primal);
 
@@ -262,6 +262,7 @@ int main()
 		state.printCanvas(outfile, " ");
 		outfile.close();
 
+		g_timer.print();
 		return 0;
 	}
 
@@ -271,7 +272,7 @@ int main()
 	grid_t primal;
 
 	HexQuadGenerator generator;
-	generator.construct(10);
+	generator.generate(50);
 	generator.relax(10);
 	generator.convert(primal);
 

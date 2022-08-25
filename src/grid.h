@@ -30,7 +30,7 @@ template<int N> struct upto;
 using vert_id = int;
 using face_id = int;
 
-template<typename NFaces> struct vertex;
+template<class NFaces> struct vertex;
 template<int N> struct vertex<always<N>>{
 	v2 pos;
 	face_id faces[N];
@@ -175,7 +175,7 @@ public:
 	 *              \         \ .       \
 	 *         j=2  20--------22---------24
 	 */
-	void construct(int n) {
+	void generate(int n) {
 		AutoTimer at(g_timer,_FUNC_);
 		n *= 2; // regular hexagons need even n
 		faces.reserve(n * 2 * n * 3);
@@ -473,7 +473,7 @@ public:
 	 *       |         |         |
 	 *  j=2  6---------7---------8
 	 */
-	void construct(int n) {
+	void generate(int n) {
 		AutoTimer at(g_timer, _FUNC_);
 
 		faces.resize(n * n);

@@ -60,13 +60,17 @@ template<int N> struct face<upto<N>> : public face<always<N>>{
 };
 
 
+struct gridMetaInformation{
+	int complSides[4];
+};
+
 template<typename NVertexFaces, typename NFaceVertices>
 struct grid {
 	using vertex_t = vertex<NVertexFaces>;
 	using face_t = face<NFaceVertices>;
 	std::vector<vertex_t> vertices;
 	std::vector<face_t> faces;
-
+	gridMetaInformation meta;
 
 	void clear(){
 		vertices.clear();
@@ -92,6 +96,7 @@ struct grid {
 		}
 	}
 };
+
 
 // Computes the dual grid. Is an involution.
 template<typename NVertexFaces, typename NFaceVertices>
@@ -435,6 +440,11 @@ public:
 		for(auto a : faces | std::views::filter([](c_face const& cf){return cf.exists;}) | std::views::transform(convertFace))
 			g.faces.push_back(a);
 
+
+		g.meta.complSides[0] = 3;
+		g.meta.complSides[1] = 2;
+		g.meta.complSides[2] = 1;
+		g.meta.complSides[3] = 0;
 	}
 
 };
@@ -559,6 +569,10 @@ public:
 		for(auto a : faces | std::views::transform(convertFace))
 			g.faces.push_back(a);
 
+		g.meta.complSides[0] = 2;
+		g.meta.complSides[1] = 3;
+		g.meta.complSides[2] = 0;
+		g.meta.complSides[3] = 1;
 	}
 
 };

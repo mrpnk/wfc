@@ -1,0 +1,261 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 12.1' *)
+
+(*CacheID: 234*)
+(* Internal cache information:
+NotebookFileLineBreakTest
+NotebookFileLineBreakTest
+NotebookDataPosition[       158,          7]
+NotebookDataLength[      8668,        253]
+NotebookOptionsPosition[      7840,        231]
+NotebookOutlinePosition[      8276,        248]
+CellTagsIndexPosition[      8233,        245]
+WindowFrame->Normal*)
+
+(* Beginning of Notebook Content *)
+Notebook[{
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"(*", 
+   RowBox[{"Load", " ", "the", " ", "grid", " ", 
+    RowBox[{"data", "."}]}], "*)"}], "\[IndentingNewLine]", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"data", "=", 
+     RowBox[{
+      RowBox[{
+       RowBox[{"Partition", "[", 
+        RowBox[{"#", ",", "8"}], "]"}], "&"}], "/@", 
+      RowBox[{"Import", "[", 
+       RowBox[{
+        RowBox[{
+         RowBox[{"NotebookDirectory", "[", "]"}], "<>", "\"\<grid.txt\>\""}], 
+        ",", "\"\<Table\>\""}], "]"}]}]}], ";"}], "\[IndentingNewLine]", 
+   RowBox[{
+    RowBox[{"data", "=", 
+     RowBox[{"Flatten", "[", 
+      RowBox[{
+       RowBox[{"Map", "[", 
+        RowBox[{
+         RowBox[{
+          RowBox[{"Partition", "[", 
+           RowBox[{"#", ",", "2"}], "]"}], "&"}], ",", "data", ",", 
+         RowBox[{"{", "2", "}"}]}], "]"}], ",", "1"}], "]"}]}], ";"}], 
+   "\[IndentingNewLine]", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"data", "[", 
+      RowBox[{"[", 
+       RowBox[{"All", ",", "All", ",", "2"}], "]"}], "]"}], "*=", 
+     RowBox[{"-", "1"}]}], ";"}], "\[IndentingNewLine]", 
+   RowBox[{"data", "//", "Dimensions"}], "\[IndentingNewLine]", 
+   RowBox[{"g", "=", 
+    RowBox[{"Graphics", "[", 
+     RowBox[{"{", 
+      RowBox[{
+       RowBox[{"EdgeForm", "[", "Black", "]"}], ",", " ", 
+       RowBox[{"Opacity", "[", "0.8", "]"}], ",", 
+       RowBox[{"Transpose", "[", 
+        RowBox[{"{", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"LightGray", "&"}], "/@", 
+           RowBox[{"Rescale", "@", "areas"}]}], ",", 
+          RowBox[{"Polygon", "/@", "data"}]}], "}"}], "]"}], ",", 
+       "\[IndentingNewLine]", "Black", ",", 
+       RowBox[{"Point", "[", 
+        RowBox[{"DeleteDuplicates", "[", 
+         RowBox[{"Flatten", "[", 
+          RowBox[{"data", ",", "1"}], "]"}], "]"}], "]"}]}], "}"}], 
+     "]"}]}]}]}]], "Input",
+ Background->RGBColor[0.88, 1, 0.88],
+ CellLabel->"In[16]:=",ExpressionUUID->"587fc350-2039-4c38-a7fe-ee6e4147c96a"],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"(*", 
+   RowBox[{
+   "Load", " ", "the", " ", "Carcassonne", " ", "image", " ", "segments", " ",
+     "that", " ", "the", " ", "wfc", " ", 
+    RowBox[{"used", "."}]}], "*)"}], "\[IndentingNewLine]", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"segmentDir", "=", 
+     RowBox[{
+      RowBox[{"NotebookDirectory", "[", "]"}], "<>", 
+      "\"\<carcassonne\>\""}]}], ";"}], "\[IndentingNewLine]", 
+   RowBox[{"segmentFiles", "=", 
+    RowBox[{"Flatten", "@", 
+     RowBox[{"StringCases", "[", 
+      RowBox[{
+       RowBox[{"FileNameTake", "/@", 
+        RowBox[{"FileNames", "[", 
+         RowBox[{"All", ",", "segmentDir"}], "]"}]}], ",", 
+       RowBox[{
+       "RegularExpression", "[", "\"\<[012]{4}(_\\\\d)?\\\\.png\>\"", "]"}]}],
+       "]"}]}]}], "\[IndentingNewLine]", 
+   RowBox[{
+    RowBox[{"segments", "=", 
+     RowBox[{
+      RowBox[{
+       RowBox[{"Import", "[", 
+        RowBox[{"FileNameJoin", "[", 
+         RowBox[{"{", 
+          RowBox[{"segmentDir", ",", "#"}], "}"}], "]"}], "]"}], "&"}], "/@", 
+      "segmentFiles"}]}], ";"}]}]}]], "Input",
+ InitializationCell->True,
+ CellLabel->"In[21]:=",ExpressionUUID->"1c8b19df-722b-4c26-bfcb-bcac0542453c"],
+
+Cell[CellGroupData[{
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"(*", 
+   RowBox[{
+   "Load", " ", "the", " ", "wfc", " ", "result", " ", "and", " ", "diplay", 
+    " ", "on", " ", "the", " ", 
+    RowBox[{"grid", "."}]}], "*)"}], "\[IndentingNewLine]", 
+  RowBox[{
+   RowBox[{
+    RowBox[{"canvas", "=", 
+     RowBox[{"Import", "[", 
+      RowBox[{
+       RowBox[{
+        RowBox[{"NotebookDirectory", "[", "]"}], "<>", "\"\<canvas.txt\>\""}],
+        ",", "\"\<Table\>\""}], "]"}]}], ";"}], "\[IndentingNewLine]", 
+   RowBox[{"canvas", "//", "Dimensions"}], "\[IndentingNewLine]", 
+   RowBox[{
+    RowBox[{"texs", "=", 
+     RowBox[{
+      RowBox[{
+       RowBox[{"ImageResize", "[", 
+        RowBox[{"#", ",", "256", ",", 
+         RowBox[{"Resampling", "\[Rule]", "\"\<Constant\>\""}]}], "]"}], 
+       "&"}], "/@", "segments"}]}], ";"}], "\[IndentingNewLine]", 
+   RowBox[{
+    RowBox[{"tcoords", "=", 
+     RowBox[{"{", 
+      RowBox[{
+       RowBox[{"{", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"0", ",", "0"}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"0", ",", "1"}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"1", ",", "1"}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"1", ",", "0"}], "}"}]}], "}"}], ",", 
+       RowBox[{"{", 
+        RowBox[{
+         RowBox[{"{", 
+          RowBox[{"1", ",", "0"}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"0", ",", "0"}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"0", ",", 
+           RowBox[{"-", "1"}]}], "}"}], ",", 
+         RowBox[{"{", 
+          RowBox[{"1", ",", 
+           RowBox[{"-", "1"}]}], "}"}]}], "}"}]}], "}"}]}], ";"}], 
+   "\[IndentingNewLine]", 
+   RowBox[{"sol", "=", 
+    RowBox[{"Graphics", "[", 
+     RowBox[{
+      RowBox[{"{", 
+       RowBox[{
+        RowBox[{"EdgeForm", "[", 
+         RowBox[{"{", 
+          RowBox[{"Thin", ",", "Transparent"}], "}"}], "]"}], ",", 
+        "\[IndentingNewLine]", 
+        RowBox[{"MapThread", "[", 
+         RowBox[{
+          RowBox[{
+           RowBox[{"{", 
+            RowBox[{
+             RowBox[{"Opacity", "[", "1", "]"}], ",", 
+             RowBox[{"Texture", "[", 
+              RowBox[{"texs", "[", 
+               RowBox[{"[", 
+                RowBox[{
+                 RowBox[{"#1", "[", 
+                  RowBox[{"[", "1", "]"}], "]"}], "+", "1"}], "]"}], "]"}], 
+              "]"}], ",", 
+             RowBox[{"Polygon", "[", 
+              RowBox[{"#2", ",", 
+               RowBox[{"VertexTextureCoordinates", "\[Rule]", 
+                RowBox[{"RotateRight", "[", 
+                 RowBox[{
+                  RowBox[{"tcoords", "[", 
+                   RowBox[{"[", 
+                    RowBox[{
+                    RowBox[{"#1", "[", 
+                    RowBox[{"[", "3", "]"}], "]"}], "+", "1"}], "]"}], "]"}], 
+                  ",", 
+                  RowBox[{"#1", "[", 
+                   RowBox[{"[", "2", "]"}], "]"}]}], "]"}]}]}], "]"}]}], 
+            "}"}], "&"}], ",", 
+          RowBox[{"{", 
+           RowBox[{"canvas", ",", "data"}], "}"}]}], "]"}], ",", 
+        "\[IndentingNewLine]", "Transparent", ",", 
+        RowBox[{"Point", "[", 
+         RowBox[{"DeleteDuplicates", "[", 
+          RowBox[{"Flatten", "[", 
+           RowBox[{"data", ",", "1"}], "]"}], "]"}], "]"}]}], "}"}], ",", 
+      RowBox[{"Background", "\[Rule]", "None"}]}], "]"}]}]}]}]], "Input",
+ Background->RGBColor[0.88, 1, 0.88],
+ CellLabel->"In[24]:=",ExpressionUUID->"54100eb1-3096-4c2a-a406-34f6cc09165e"],
+
+Cell[BoxData[
+ RowBox[{"{", 
+  RowBox[{"338", ",", "3"}], "}"}]], "Output",
+ CellLabel->"Out[25]=",ExpressionUUID->"bbcb9286-da45-4e4c-9f9d-1a1504234ecd"]
+}, Open  ]],
+
+Cell[BoxData[
+ RowBox[{
+  RowBox[{"Export", "[", 
+   RowBox[{
+    RowBox[{
+     RowBox[{"NotebookDirectory", "[", "]"}], "<>", 
+     "\"\<img/solution_carcassonne.png\>\""}], ",", "sol", ",", 
+    RowBox[{"Background", "->", "None"}], ",", 
+    RowBox[{"ImageSize", "->", "2000"}]}], "]"}], ";"}]], "Input",
+ Background->RGBColor[1, 0.85, 0.85],
+ CellLabel->
+  "In[626]:=",ExpressionUUID->"ad5ebbb5-fcb3-45b5-bf81-07f97c106937"]
+},
+WindowSize->{958.5, 1005.},
+WindowMargins->{{Automatic, -5.25}, {Automatic, 0}},
+Magnification:>1. Inherited,
+FrontEndVersion->"13.0 for Microsoft Windows (64-bit) (February 4, 2022)",
+StyleDefinitions->"Default.nb",
+ExpressionUUID->"190d505f-a6d1-49b6-8d6e-89be810ba8e5"
+]
+(* End of Notebook Content *)
+
+(* Internal cache information *)
+(*CellTagsOutline
+CellTagsIndex->{}
+*)
+(*CellTagsIndex
+CellTagsIndex->{}
+*)
+(*NotebookFileOutline
+Notebook[{
+Cell[558, 20, 1967, 55, 159, "Input",ExpressionUUID->"587fc350-2039-4c38-a7fe-ee6e4147c96a"],
+Cell[2528, 77, 1198, 33, 121, "Input",ExpressionUUID->"1c8b19df-722b-4c26-bfcb-bcac0542453c",
+ InitializationCell->True],
+Cell[CellGroupData[{
+Cell[3751, 114, 3485, 96, 216, "Input",ExpressionUUID->"54100eb1-3096-4c2a-a406-34f6cc09165e"],
+Cell[7239, 212, 154, 3, 32, "Output",ExpressionUUID->"bbcb9286-da45-4e4c-9f9d-1a1504234ecd"]
+}, Open  ]],
+Cell[7408, 218, 428, 11, 44, "Input",ExpressionUUID->"ad5ebbb5-fcb3-45b5-bf81-07f97c106937"]
+}
+]
+*)
+

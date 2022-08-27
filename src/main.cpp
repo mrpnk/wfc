@@ -26,7 +26,6 @@ class ImagePalette : public wfc::SegmentPalette{
 	std::vector<seg> modus;
 	std::vector<bool> fitlus;
 	std::vector<wfc::option> allOptions;
-	gridMetaInformation meta;
 
 	/*           side=0
 	 *           ----->
@@ -76,9 +75,8 @@ class ImagePalette : public wfc::SegmentPalette{
 	}
 
 public:
-	void load(std::filesystem::path filename, gridMetaInformation meta){
+	void load(std::filesystem::path filename){
 		AutoTimer at(g_timer, _FUNC_);
-		this->meta = meta;
 		const int nmodus = k * k;
 		const int noptions = nmodus * 4 * (MIRROR + 1);
 		modus.resize(nmodus);
@@ -108,14 +106,14 @@ public:
 	int getNumOptions() const override {
 		return allOptions.size();
 	}
-	wfc::option const& getOption(int i) const override {
+	wfc::option const& getOption(wfc::option_id i) const override {
 		return allOptions[i];
 	}
-	inline bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& other_opt) const override {
+	bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& otherOpt, int otherDir) const override {
 		for (int i : sp)
 			if (const wfc::option& own_opt = allOptions[i];
 					fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-					      other_opt.modIdx, other_opt.rot, other_opt.mirrorX))
+					      otherOpt.modIdx, otherOpt.rot, otherOpt.mirrorX))
 				return true;
 		return false;
 	}
@@ -135,7 +133,6 @@ class CarcassonnePalette : public wfc::SegmentPalette{
 	std::vector<seg> segments;
 	std::vector<bool> fitlus;
 	std::vector<wfc::option> allOptions;
-	gridMetaInformation meta;
 	const int MIRROR = 0;
 
 	// Returns whether the two segments fit together with the given sides.
@@ -164,18 +161,17 @@ class CarcassonnePalette : public wfc::SegmentPalette{
 		return fitlus[(((mod1 * 4 + s1) * segments.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirror];
 	}
 	inline bool fitlu(int seg1, int rot1, bool refl1, int side1,
-	                  int seg2, int rot2, bool refl2) const {
-		int e1 = (side1 - rot1 + 4) % 4, e2 = (meta.complSides[side1] - rot2 + 4) % 4;
+	                  int seg2, int rot2, bool refl2, int side2) const {
+		int e1 = (side1 - rot1 + 4) % 4, e2 = (side2 - rot2 + 4) % 4;
 		if (refl1) { e1 = (4 - e1) % 4; }
 		if (refl2) { e2 = (4 - e2) % 4; }
 		return fitlu(seg1, e1, seg2, e2, refl1 ^ refl2);
 	}
 
 public:
-	void load(fs::path directory, gridMetaInformation meta){
+	void load(fs::path directory){
 		AutoTimer at(g_timer, _FUNC_);
 
-		this->meta = meta;
 		const auto mask = std::regex("[012]{4}(_\\d)?\\.png");
 		int nSegments = 0, nOptions = 0;
 		for (const auto& file : fs::directory_iterator(directory)){
@@ -203,14 +199,14 @@ public:
 	int getNumOptions() const override {
 		return allOptions.size();
 	}
-	const wfc::option& getOption(int i) const override {
+	const wfc::option& getOption(wfc::option_id i) const override {
 		return allOptions[i];
 	}
-	inline bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& other_opt) const override {
-		for (int i : sp)
+	inline bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& otherOpt, int otherDir) const override {
+		for (wfc::option_id i : sp)
 			if (const wfc::option& own_opt = allOptions[i];
 					fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-					      other_opt.modIdx, other_opt.rot, other_opt.mirrorX))
+					      otherOpt.modIdx, otherOpt.rot, otherOpt.mirrorX, otherDir))
 				return true;
 		return false;
 	}
@@ -221,52 +217,6 @@ int main()
 {
 	srand(273);
 
-	{
-//		using grid_t = grid<always<4>, always<4>>;
-//		grid_t hexquad;
-//
-//		SquareGenerator gen;
-//		gen.construct(10);
-//		gen.convert(hexquad);
-
-		using grid_t = grid<upto<6>, always<4>>;
-		grid_t primal;
-
-		HexQuadGenerator generator;
-		generator.generate(50);
-		generator.relax(10);
-		generator.convert(primal);
-
-
-		std::ofstream file("grid.txt");
-		primal.print(file);
-		file.close();
-
-
-		// Load the segments from file
-		CarcassonnePalette palette;
-		palette.load("carcassonne/", primal.meta);
-
-
-		// Create the option space for this grid
-		wfc::gridState<grid_t> state;
-		state.init(&primal, &palette);
-
-
-		// Find a constellation that satisfies all conditions
-		wfc::WaveFunctionCollapser<grid_t> collapser;
-		collapser.solve(&state);
-		//collapser.solveRecursive(&state);
-
-		std::ofstream outfile("canvas.txt");
-		state.printCanvas(outfile, " ");
-		outfile.close();
-
-		g_timer.print();
-		return 0;
-	}
-
-
 	// In the beginning there was the grid
 	using grid_t = grid<upto<6>, always<4>>;
 	grid_t primal;
@@ -274,16 +224,31 @@ int main()
 	HexQuadGenerator generator;
 	generator.generate(50);
 	generator.relax(10);
+
+	generator.print();
+
 	generator.convert(primal);
+
+//	using grid_t = grid<always<4>, always<4>>;
+//	grid_t primal;
+//
+//	SquareGenerator generator;
+//	generator.generate(30);
+//	generator.convert(primal);
 
 	std::ofstream file("grid.txt");
 	primal.print(file);
 	file.close();
 
 	// Compute the dual because it looks so nice
-	using dual_t = grid<always<4>, upto<6>>;
-	dual_t dual;
+	grid_t::dual_t dual;
 	computeDualGrid(primal, dual);
+
+	std::cout << "primal defects: " << std::endl;
+	checkIntegrity(primal);
+
+	std::cout << "dual defects: " << std::endl;
+	checkIntegrity(dual);
 
 	std::ofstream dualfile("dual.txt");
 	dual.print(dualfile);
@@ -292,8 +257,9 @@ int main()
 
 	// Load the segments from file
 	ImagePalette palette;
-	palette.load("modules.txt", primal.meta);
-
+	palette.load("modules.txt");
+//	CarcassonnePalette palette;
+//	palette.load("carcassonne/", primal.meta);
 
 	// Create the option space for this grid
 	wfc::gridState<grid_t> state;

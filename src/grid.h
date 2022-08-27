@@ -24,8 +24,8 @@ struct v2{
 };
 
 
-template<int N> struct always;
-template<int N> struct upto;
+template<int N> struct always{static constexpr int max(){return N;}};
+template<int N> struct upto{static constexpr int max(){return N;}};
 
 using vert_id = int;
 using face_id = int;
@@ -60,25 +60,48 @@ template<int N> struct face<upto<N>> : public face<always<N>>{
 };
 
 
-struct gridMetaInformation{
-	int complSides[4];
-};
-
 template<typename NVertexFaces, typename NFaceVertices>
 struct grid {
+	using dual_t = grid<NFaceVertices, NVertexFaces>;
 	using vertex_t = vertex<NVertexFaces>;
 	using face_t = face<NFaceVertices>;
+//	struct metaInformation{
+//		int complFaceSides[NFaceVertices::max()];
+//		int complVertexSides[NVertexFaces::max()];
+//	};
+
 	std::vector<vertex_t> vertices;
 	std::vector<face_t> faces;
-	gridMetaInformation meta;
+	//metaInformation meta;
 
 	void clear(){
 		vertices.clear();
 		faces.clear();
 	}
 
+	// Ideally, when a face f0 has a face f1 as its d-th neighbour, then f1 has f0 as its phi(d)-th neighbour,
+	// where phi is an involutive permutation of {0,...,NFaceVertices-1} and the labels d are circularly arranged (CW or CCW, respectively).
+	// Unfortunately, for general grids (especially those with different n-gons) the edges can not be labelled such that a phi exists. int nTotalHoursWastedHere = 16;
+	// In these cases, we need to compute the complement index for every edge of every face.
+	// It turns out that this is not a performance issue at all. TODO still precompute
+	int getComplFace(face_id f, int d) const{
+		face_t const& ff = faces[faces[f].neighbours[d]];
+		for(int k = 0; k < ff.getNumCorners(); ++k)
+			if(ff.neighbours[k] == f)
+				return k;
+		assert(false);
+	}
+
+	int getComplVertex(vert_id v, int d) const{
+		vertex_t const& vv = vertices[vertices[v].neighbours[d]];
+		for(int k = 0; k < vv.getNumFaces(); ++k)
+			if(vv.neighbours[k] == v)
+				return k;
+		assert(false);
+	}
+
 	template<typename CB>
-	int forAllCells(CB&& cb) const {
+	int forAllFaces(CB&& cb) const {
 		int counter{0};
 		for (face_t const& f : faces) {
 			cb(f);
@@ -99,7 +122,7 @@ struct grid {
 
 
 // Computes the dual grid. Is an involution.
-template<typename NVertexFaces, typename NFaceVertices>
+template<class NVertexFaces, class NFaceVertices>
 void computeDualGrid(grid<NVertexFaces,NFaceVertices> const& src, grid<NFaceVertices,NVertexFaces>& dst) {
 	dst.clear();
 	dst.faces.resize(src.vertices.size());
@@ -122,6 +145,42 @@ void computeDualGrid(grid<NVertexFaces,NFaceVertices> const& src, grid<NFaceVert
 			dst.vertices[i].neighbours[j] = src.faces[i].neighbours[j];
 		}
 	}
+
+//	memcpy(dst.meta.complVertexSides, src.meta.complFaceSides, sizeof(int)*NFaceVertices::max());
+//	memcpy(dst.meta.complFaceSides, src.meta.complVertexSides, sizeof(int)*NVertexFaces::max());
+}
+
+template<class NVertexFaces, class NFaceVertices>
+int checkIntegrity(grid<NVertexFaces,NFaceVertices> const& grid) {
+	AutoTimer at(g_timer, _FUNC_);
+	int nDefects = 0;
+	// check if the face complements are as advertised
+	for (int i = 0; i < grid.faces.size(); ++i) {
+		const auto& fi = grid.faces[i];
+		for (int k = 0; k < fi.getNumCorners(); ++k) {
+			auto j = fi.neighbours[k];
+			if (j < 0) continue;
+			const auto& fj = grid.faces[j];
+			if (i == j) ++nDefects;
+			if (i != fj.neighbours[grid.getComplFace(i, k)]) ++nDefects;
+		}
+	}
+	std::cout << nDefects << std::endl;
+	nDefects = 0;
+
+	// check if the vertex complements are as advertised
+	for (int i = 0; i < grid.vertices.size(); ++i) {
+		const auto& vi = grid.vertices[i];
+		for (int k = 0; k < vi.getNumFaces(); ++k) {
+			auto j = vi.neighbours[k];
+			if (j < 0) continue;
+			const auto& vj = grid.vertices[j];
+			if (i == j) ++nDefects;
+			if (i != vj.neighbours[grid.getComplVertex(i, k)]) ++nDefects;
+		}
+	}
+	std::cout << nDefects << std::endl;
+	return nDefects;
 }
 
 
@@ -139,6 +198,7 @@ class HexQuadGenerator : public GridGenerator<grid<upto<6>,always<4>>> {
 		v2 force;
 		bool fixedX = false;
 		bool fixedY = false;
+		int nNeighbours = 0;
 	};
 	struct c_face : public grid_t::face_t {
 		bool exists = false;
@@ -150,7 +210,7 @@ class HexQuadGenerator : public GridGenerator<grid<upto<6>,always<4>>> {
 	const int mergeProb = 100;
 	float totalArea;
 
-	void sortFacesCircular() {
+	void sortFacesCircularly() {
 		for (auto& v : vertices) {
 			if(v.getNumFaces() > 2)
 			std::sort(v.faces, v.faces + v.getNumFaces(), [&v, this](face_id a, face_id b) {
@@ -319,31 +379,46 @@ public:
 			}
 		}
 
+		for(auto& v: vertices) {
+			for (int k = 0; k < 6; ++k) {
+				v.neighbours[k] = -1;
+			}
+		}
 
-		// Use node information to find the neighbours of each cell:
-		for (c_face& fa : faces) {
-			if (!fa.exists) continue;
-			int nnn = 0;
-			for (int kk = 0; kk < 4; ++kk) {
-				fa.neighbours[kk] = -1;
-				const auto& v = vertices[fa.corners[kk]];
-				for (int xy = 0; xy < v.nFaces; ++xy) {
-					face_id otherface = v.faces[xy];
-					if (&faces[otherface] == &fa) continue;
-					bool touches = false;
-					for (int kk2 = 0; kk2 < 4; ++kk2) {
-						if (faces[otherface].corners[kk2] == fa.corners[(kk + 1) % 4]) {
-							touches = true;
-							break;
+		// Use corner information to find the neighbours of each face:
+		for (c_face& f0 : faces) {
+			if (!f0.exists) continue;
+			for (int d0 = 0; d0 < 4; ++d0) {
+				f0.neighbours[d0] = -1;
+				auto& v = vertices[f0.corners[d0]];
+				for (int k = 0; k < v.nFaces; ++k) {
+					face_id f1 = v.faces[k];
+					if (&faces[f1] == &f0) continue;
+					for (int d1 = 0; d1 < 4; ++d1) {
+						vert_id v0 = faces[f1].corners[d1], v1 = f0.corners[(d0 + 1) % 4];
+						if (v0 == v1) {
+							f0.neighbours[d0] = f1;
+							v.neighbours[v.nNeighbours++] = v1;
+							goto next_side;
 						}
 					}
-					if (touches){
-						nnn++;
-						fa.neighbours[kk] = otherface;
-						break;
-					}
 				}
+				next_side:
+				continue;
 			}
+		}
+
+		std::map<int,int> usedVerts;
+		for (c_face& fa : faces) {
+			if(fa.exists)
+				for(int i = 0; i< fa.getNumCorners();++i)
+					usedVerts[fa.corners[i]]++;
+		}
+		std::map<int,int> counter;
+		for(auto& v: vertices) {
+			int i =&v-vertices.data() ;
+			if(usedVerts[i] > 0)
+				counter[v.nFaces]++;
 		}
 
 		// Compute face centres
@@ -359,9 +434,7 @@ public:
 		}
 
 		// Make sure that the faces of each vertex are ordered circularly. This will make the dual grid trivially drawable.
-		// Despite all the nice properties of the primal grid, there seems no good way to label the edges of the dual grid.
-		// This manual sorting is therefore a quick fix until something better is found. int nTotalHoursWastedHere = 6;
-		sortFacesCircular();
+		sortFacesCircularly();
 
 		totalArea = std::sqrt(3.f) * 3 / 2 * n * n / 4;
 	}
@@ -441,10 +514,30 @@ public:
 			g.faces.push_back(a);
 
 
-		g.meta.complSides[0] = 3;
-		g.meta.complSides[1] = 2;
-		g.meta.complSides[2] = 1;
-		g.meta.complSides[3] = 0;
+//		g.meta.complFaceSides[0] = 3;
+//		g.meta.complFaceSides[1] = 2;
+//		g.meta.complFaceSides[2] = 1;
+//		g.meta.complFaceSides[3] = 0;
+//
+//		g.meta.complVertexSides[0] = 0;
+//		g.meta.complVertexSides[1] = 0;
+//		g.meta.complVertexSides[2] = 0;
+//		g.meta.complVertexSides[3] = 0;
+//		g.meta.complVertexSides[4] = 0;
+//		g.meta.complVertexSides[5] = 0;
+	}
+
+	void print() const{
+		std::ofstream file("debug.txt");
+		for(int i=0; auto const& v :vertices){
+			file << i << " " << v.pos;
+			for(int k = 0; k< v.getNumFaces(); ++k)
+				file << " " << v.neighbours[k];
+			file << std::endl;
+			++i;
+		}
+
+		file.close();
 	}
 
 };
@@ -569,10 +662,15 @@ public:
 		for(auto a : faces | std::views::transform(convertFace))
 			g.faces.push_back(a);
 
-		g.meta.complSides[0] = 2;
-		g.meta.complSides[1] = 3;
-		g.meta.complSides[2] = 0;
-		g.meta.complSides[3] = 1;
+//		g.meta.complFaceSides[0] = 2;
+//		g.meta.complFaceSides[1] = 3;
+//		g.meta.complFaceSides[2] = 0;
+//		g.meta.complFaceSides[3] = 1;
+//
+//		g.meta.complVertexSides[0] = 0;
+//		g.meta.complVertexSides[1] = 0;
+//		g.meta.complVertexSides[2] = 0;
+//		g.meta.complVertexSides[3] = 0;
 	}
 
 };

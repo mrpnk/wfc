@@ -30,6 +30,7 @@ namespace wfc
 		mutable std::mutex mtx;
 	public:
 		bool push(T i) {
+			//AutoTimer at(g_timer, _FUNC_);
 			const std::lock_guard lock(mtx);
 			if (se.contains(i))
 				return false;
@@ -63,14 +64,15 @@ namespace wfc
 		bool operator==(option const&)const = default;
 	};
 
-	using superposition = std::vector<int>;
+	using option_id = short;
+	using superposition = std::vector<option_id>;
 	using wavefunction = std::vector<superposition>;
 
 	class SegmentPalette {
 	public:
 		virtual int getNumOptions() const = 0;
-		virtual option const& getOption(int i) const = 0;
-		virtual inline bool isPossibleNeighbour(superposition const& sp, int dir, option const& other_opt) const = 0;
+		virtual option const& getOption(option_id i) const = 0;
+		virtual bool isPossibleNeighbour(superposition const& sp, int dir, option const& otherOpt, int otherDir) const = 0;
 	};
 
 	// ---------------------------------------------------------------------------------------
@@ -101,16 +103,35 @@ namespace wfc
 			faceInfos.resize(g->faces.size());
 		}
 
-		auto& getOptions(this auto&& self, face_t const* f) {
-			return self.wave[f - self.grid->faces.data()];
+		face_id getLowestEntropyFace() const {
+			AutoTimer at(g_timer, _FUNC_);
+
+//			int i;
+//			do{(i = rand() % grid->faces.size());}
+//			while(this->getOptions(i).size() <= 1);
+//			return i;
+
+			std::vector<face_id> minPosis; int minEntropy = std::numeric_limits<int>::max();
+			grid->forAllFaces([&, this](face_t const& c) {
+				face_id id = &c-grid->faces.data();
+				const superposition& sp = this->getOptions(id);
+				if (sp.size() > 1) {
+					if (sp.size() < minEntropy) minPosis = { id }, minEntropy = sp.size();
+					else if (sp.size() == minEntropy) minPosis.push_back(id);
+				}
+			});
+			return minPosis[rand() % minPosis.size()];
 		}
 
-		auto& getInfo(this auto&& self, face_t const* f) {
-			return self.faceInfos[f - self.grid->faces.data()];
+		const face_id getNeighbourFace(face_id f, int d) const {
+			return grid->faces[f].neighbours[d];
+		}
+		auto& getOptions(this auto&& self, face_id f) {
+			return self.wave[f];
 		}
 
-		const face_t* getNeighbourFace(face_t const* p, int d) const {
-			return p->neighbours[d] == -1 ? nullptr : &grid->faces[p->neighbours[d]];
+		auto& getInfo(this auto&& self, face_id f) {
+			return self.faceInfos[f];
 		}
 
 		bool isCollapsed() const {
@@ -121,17 +142,6 @@ namespace wfc
 			for (auto& a : wave) if (a.size() == 0) return true;
 			return false;
 		}
-		const face_t& getLowestEntropyPos() const {
-			std::vector<face_t const*> minPosis; int minEntropy = std::numeric_limits<int>::max();
-			grid->forAllCells([&, this](face_t const& c) {
-				const superposition& sp = this->getOptions(&c);
-				if (sp.size() > 1) {
-					if (sp.size() < minEntropy) minPosis = { &c }, minEntropy = sp.size();
-					else if (sp.size() == minEntropy) minPosis.push_back(&c);
-				}
-			});
-			return *minPosis[rand() % minPosis.size()];
-		}
 		bool isAnyMirrored() const {
 			for (auto& a : wave)
 				for (auto& b : a)
@@ -139,7 +149,6 @@ namespace wfc
 						return true;
 			return false;
 		}
-
 
 		void printCanvas(std::ostream& os, std::string sep = "") const {
 			for (auto& sp : wave) {
@@ -170,48 +179,49 @@ namespace wfc
 
 
 		// Fills the superposition of the slot based on hard conditions. The result is used as the initial state for wfc.
-		void fillOptions(face_t const& c) {
-			state->getOptions(&c) = state->allSP;
+		void fillOptions(face_id f) {
+			state->getOptions(f) = state->allSP;
 		}
 
-		void collapse(face_t const& c) {
-			superposition& sp = state->getOptions(&c);
+		void collapse(face_id c) {
+			superposition& sp = state->getOptions(c);
 			sp = { sp[rand() % sp.size()] };
 		}
 
 		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
-		bool propagate(face_t const& c) {
+		bool propagate(face_id c) {
 			AutoTimer at(g_timer, _FUNC_);
-			std::map<face_t const*, superposition> backup;
-			uniqueStack<face_t const*> jobs;
-			jobs.push(&c);
+			std::map<face_id, superposition> backup;
+			uniqueStack<face_id> jobs;
+			const auto& faces = state->grid->faces;
+			jobs.push(c);
 			while (!jobs.empty()) {
-				const face_t* p = jobs.pop();
+				face_id p = jobs.pop();
 				superposition& sp = state->getOptions(p);
-				for (int d = 0; d < 4; ++d) {
-					if (const face_t* nnp = state->getNeighbourFace(p, d); nnp != nullptr) {
+				for (int d = 0; d < faces[p].getNumCorners(); ++d) {
+					face_id nnp = state->getNeighbourFace(p, d);
+					if (nnp != -1) {
 						superposition& nnsp = state->getOptions(nnp);
 						if (nnsp.size() <= 1) continue;
 						if (!backup.contains(nnp)) backup[nnp] = nnsp;
 
-						erase_neighbours:
-						if (std::erase_if(nnsp, [&](int& other_opt) {
-							return !palette->isPossibleNeighbour(sp, d, palette->getOption(other_opt));
-						}))
-							jobs.push(nnp);
+						int dstar = state->grid->getComplFace(p, d);
 
-						if (nnsp.size() == 0) {
-							auto fi = state->getInfo(nnp);
-							if (!fi.dirty) {
+						erase_neighbours:
+						{
+							//AutoTimer at(g_timer, "erase neighbours");
+							if (std::erase_if(nnsp, [&](int const& otherOpt) {
+								return !palette->isPossibleNeighbour(sp, d, palette->getOption(otherOpt), dstar);
+							}))
+								jobs.push(nnp);
+						}
+
+						if (nnsp.empty()) {
+							if (auto fi = state->getInfo(nnp); !fi.dirty) {
 								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
-								//std::cerr << "re-update neighbour slot to save the wave..." << std::endl;
-								fillOptions(*nnp);
+								fillOptions(nnp);
 								fi.dirty = true;
 								if (nnsp != backup[nnp]) {
-//									std::cerr << "re-update found new options: ";
-//									for (auto& a: nnsp)
-//										std::cerr << a << ",";
-//									std::cerr << " ->Repeat." << std::endl;
 									backup[nnp] = nnsp;
 									goto erase_neighbours;
 								}
@@ -223,15 +233,17 @@ namespace wfc
 			return true;
 
 			undo_propagate:
-			for (auto& p: backup) {
-				state->getOptions(p.first) = p.second;
+			{
+				AutoTimer at(g_timer, "undo propagate");
+				for (const auto& p: backup)
+					state->getOptions(p.first) = p.second;
 			}
 			return false;
 		}
 
 		// Fills superpositions of all (touched) slots with the prefiltered options.
 		void fillWave(bool all){
-			state->grid->forAllCells([&, counter=0](face_t const& c)mutable{
+			state->grid->forAllFaces([&, counter=0](face_t const& c)mutable{
 				bool needsUpdate = state->getInfo(&c).dirty || all;
 				if(needsUpdate){// suppose this is a new slot
 					fillOptions(c);
@@ -257,7 +269,7 @@ namespace wfc
 			palette = s->palette;
 
 			while (!state->isCollapsed()) {
-				auto& p = state->getLowestEntropyPos();
+				auto p = state->getLowestEntropyFace();
 				collapse(p);
 				propagate(p);
 			}
@@ -273,7 +285,7 @@ namespace wfc
 			if (state->isCollapsed())
 				return !state->isStuck();
 			out_nrecursions++;
-			const auto& c = state->getLowestEntropyPos();
+			const auto& c = state->getLowestEntropyFace();
 			superposition& sp = state->getOptions(&c);
 			//	std::cerr<<"getLowestEntropyPos = "<<p->mycell<< " ori "<<p->ori<<endl;
 			if (sp.size() == 1)
@@ -320,7 +332,7 @@ namespace wfc
 
 //				// Map the intern wave function to the grid slots:
 //				wavefunction gridwave(gs..getNumCells() * 8);
-//				g.forAllCells([&, counter = 0](Cell&, int, slot& s)mutable{
+//				g.forAllFaces([&, counter = 0](Cell&, int, slot& s)mutable{
 //					gridwave[counter++] = &s.sp;
 //				});
 

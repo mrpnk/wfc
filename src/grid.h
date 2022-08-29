@@ -5,6 +5,7 @@
 #include <numeric>
 #include <cassert>
 #include <ranges>
+#include <cmath>
 
 struct v2{
 	float x, y;
@@ -89,7 +90,7 @@ struct grid {
 		for(int k = 0; k < ff.getNumCorners(); ++k)
 			if(ff.neighbours[k] == f)
 				return k;
-		assert(false);
+		std::unreachable();
 	}
 
 	int getComplVertex(vert_id v, int d) const{
@@ -97,7 +98,7 @@ struct grid {
 		for(int k = 0; k < vv.getNumFaces(); ++k)
 			if(vv.neighbours[k] == v)
 				return k;
-		assert(false);
+		std::unreachable();
 	}
 
 	template<typename CB>
@@ -116,6 +117,19 @@ struct grid {
 				if(f.corners[k] != -1)
 					os << vertices[f.corners[k]].pos << " ";
 			if(f.getNumCorners()>0) os << std::endl;
+			else
+				os << std::endl;
+		}
+	}
+
+	void printDebug(std::ostream& file) const{
+
+		for(int i=0; auto const& v : vertices){
+			file << i << " " << v.pos;
+			for(int k = 0; k< v.getNumFaces(); ++k)
+				file << " " << v.neighbours[k];
+			file << std::endl;
+			++i;
 		}
 	}
 };
@@ -155,7 +169,7 @@ int checkIntegrity(grid<NVertexFaces,NFaceVertices> const& grid) {
 	AutoTimer at(g_timer, _FUNC_);
 	int nDefects = 0;
 	// check if the face complements are as advertised
-	for (int i = 0; i < grid.faces.size(); ++i) {
+	for (face_id i = 0; i < grid.faces.size(); ++i) {
 		const auto& fi = grid.faces[i];
 		for (int k = 0; k < fi.getNumCorners(); ++k) {
 			auto j = fi.neighbours[k];
@@ -169,10 +183,10 @@ int checkIntegrity(grid<NVertexFaces,NFaceVertices> const& grid) {
 	nDefects = 0;
 
 	// check if the vertex complements are as advertised
-	for (int i = 0; i < grid.vertices.size(); ++i) {
+	for (vert_id i = 0; i < grid.vertices.size(); ++i) {
 		const auto& vi = grid.vertices[i];
 		for (int k = 0; k < vi.getNumFaces(); ++k) {
-			auto j = vi.neighbours[k];
+			vert_id j = vi.neighbours[k];
 			if (j < 0) continue;
 			const auto& vj = grid.vertices[j];
 			if (i == j) ++nDefects;
@@ -212,12 +226,49 @@ class HexQuadGenerator : public GridGenerator<grid<upto<6>,always<4>>> {
 
 	void sortFacesCircularly() {
 		for (auto& v : vertices) {
-			if(v.getNumFaces() > 2)
-			std::sort(v.faces, v.faces + v.getNumFaces(), [&v, this](face_id a, face_id b) {
-				auto pa = faces[a].centre - v.pos;
-				auto pb = faces[b].centre - v.pos;
-				return std::atan2(pa.x,pa.y) < std::atan2(pb.x,pb.y);
-			});
+			if(v.getNumFaces() > 2) {
+//			std::sort(v.faces, v.faces + v.getNumFaces(), [&v, this](face_id a, face_id b) {
+//				auto pa = faces[a].centre - v.pos;
+//				auto pb = faces[b].centre - v.pos;
+//				return std::atan2(pa.x,pa.y) > std::atan2(pb.x,pb.y);
+//			});
+
+				std::vector<int>idx(v.getNumFaces());
+				std::iota(idx.begin(), idx.end(), 0);
+				std::sort(idx.begin(), idx.end(), [&v, this](int i, int j) {
+					face_id a = v.faces[i];
+					face_id b = v.faces[j];
+					auto pa = faces[a].centre - v.pos;
+					auto pb = faces[b].centre - v.pos;
+					return std::atan2(pa.x, pa.y) > std::atan2(pb.x, pb.y);
+				});
+
+				std::vector<int> tempfaces(v.getNumFaces());
+				std::vector<int> tempneighbours(v.getNumFaces());
+				for(int i = 0; i< v.getNumFaces(); ++i) {
+					tempfaces[i] = v.faces[i];
+					tempneighbours[i] = v.neighbours[i];
+				}
+
+				for(int i = 0; i< v.getNumFaces(); ++i){
+					v.faces[i] = tempfaces[idx[i]];
+					//v.neighbours[(i-1+v.getNumFaces())%v.getNumFaces()] = tempneighbours[idx[i]];
+					v.neighbours[i] = tempneighbours[idx[i]];
+				}
+
+
+
+
+			}
+//			if(v.nNeighbours > 2) {
+//				std::sort(v.neighbours, v.neighbours+ v.nNeighbours, [&v, this](vert_id a, vert_id b) {
+//					auto pa = vertices[a].pos - v.pos;
+//					auto pb = vertices[b].pos - v.pos;
+//					return std::atan2(pa.x, pa.y) > std::atan2(pb.x, pb.y);
+//				});
+//
+//			}
+
 		}
 	}
 
@@ -379,7 +430,7 @@ public:
 			}
 		}
 
-		for(auto& v: vertices) {
+		for(auto& v : vertices) {
 			for (int k = 0; k < 6; ++k) {
 				v.neighbours[k] = -1;
 			}
@@ -395,10 +446,10 @@ public:
 					face_id f1 = v.faces[k];
 					if (&faces[f1] == &f0) continue;
 					for (int d1 = 0; d1 < 4; ++d1) {
-						vert_id v0 = faces[f1].corners[d1], v1 = f0.corners[(d0 + 1) % 4];
-						if (v0 == v1) {
+						vert_id v1 = faces[f1].corners[d1], v0 = f0.corners[(d0 + 1) % 4];
+						if (v1 == v0) {
 							f0.neighbours[d0] = f1;
-							v.neighbours[v.nNeighbours++] = v1;
+							v.neighbours[k] = v1;v.nNeighbours++;
 							goto next_side;
 						}
 					}
@@ -518,28 +569,7 @@ public:
 //		g.meta.complFaceSides[1] = 2;
 //		g.meta.complFaceSides[2] = 1;
 //		g.meta.complFaceSides[3] = 0;
-//
-//		g.meta.complVertexSides[0] = 0;
-//		g.meta.complVertexSides[1] = 0;
-//		g.meta.complVertexSides[2] = 0;
-//		g.meta.complVertexSides[3] = 0;
-//		g.meta.complVertexSides[4] = 0;
-//		g.meta.complVertexSides[5] = 0;
 	}
-
-	void print() const{
-		std::ofstream file("debug.txt");
-		for(int i=0; auto const& v :vertices){
-			file << i << " " << v.pos;
-			for(int k = 0; k< v.getNumFaces(); ++k)
-				file << " " << v.neighbours[k];
-			file << std::endl;
-			++i;
-		}
-
-		file.close();
-	}
-
 };
 
 class SquareGenerator : public GridGenerator<grid<always<4>,always<4>>> {
@@ -650,7 +680,7 @@ public:
 				v.faces[i] = v.faces[i];
 			return v;
 		};
-		auto convertFace = [this](c_face const& cf){
+		auto convertFace = [](c_face const& cf){
 			grid_t::face_t f = cf;
 			return f;
 		};
@@ -666,11 +696,6 @@ public:
 //		g.meta.complFaceSides[1] = 3;
 //		g.meta.complFaceSides[2] = 0;
 //		g.meta.complFaceSides[3] = 1;
-//
-//		g.meta.complVertexSides[0] = 0;
-//		g.meta.complVertexSides[1] = 0;
-//		g.meta.complVertexSides[2] = 0;
-//		g.meta.complVertexSides[3] = 0;
 	}
 
 };

@@ -4,241 +4,214 @@
 
 #include <regex>
 
-struct colour {
-	float r, g, b;
-	bool operator<(colour const& c) const { return r < c.r ? true : r > c.r ? false : g < c.g ? true : g > c.g ? false : b < c.b; }
-	bool operator==(colour const& c) const = default;
-	friend std::ostream& operator<<(std::ostream& os, colour const& col) { return os << col.r << " " << col.g << " " << col.b; }
-};
-
 
 class ImagePalette : public wfc::SegmentPalette{
-	// first reflect, then rotate
 	static const int m = 6; // tile size per axis in pixels
 	static const int k = 5; // source texture size per axis in tiles
-	static const bool MIRROR = 1;
+	static const bool allowReflections = true;
+	struct colour {
+		float r, g, b;
+		bool operator<(colour const& c) const { return r < c.r ? true : r > c.r ? false : g < c.g ? true : g > c.g ? false : b < c.b; }
+		bool operator==(colour const& c) const = default;
+		friend std::ostream& operator<<(std::ostream& os, colour const& col) { return os << col.r << " " << col.g << " " << col.b; }
+	};
 
 	template<int m> struct segment {
 		colour cols[m * m];
+		const wfc::symmetryGroup2D* symm;
+
+		/*           side=0
+		 *           ----->
+		 *         A 0 1 2 |
+		 *  side=3 | 3 4 5 | side=1
+		 *         | 6 7 8 V
+		 *           <-----
+		 *           side=2
+		 */
+		inline colour faceElem(wfc::edge_id e, int i) const {
+			int indices[8] = { i, m-1 + i*m, m*m-1-i, (m-1-i)*m, // CW
+			                   m-1-i, m*m-1-i*m, m*m-m+i, i*m};  // CCW
+			return cols[indices[e]];
+		}
 	};
-
 	using seg = segment<m>;
-	std::vector<seg> modus;
-	std::vector<bool> fitlus;
-	std::vector<wfc::option> allOptions;
+	std::vector<seg> segments;
 
-	/*           side=0
-	 *           ----->
-	 *         A 0 1 2 |
-	 *  side=3 | 3 4 5 | side=1
-	 *         | 6 7 8 V
-	 *           <-----
-	 *           side=2
-	 */
-	inline int faceElemIdx(int side, int i) const {
-		int indices[4] = { i,m - 1 + i * m,m * m - 1 - i,(m - 1 - i) * m };
-		return indices[side];
-	}
+	const wfc::dihedralGroup<4, allowReflections> d4;
 
 
-	// Returns whether the two segments fit together with the given sides.
-	bool fit(seg const& mod1, int s1, seg const& mod2, int s2, bool mirror) const {
+	// Returns whether the two segments fit together with the given edges.
+	bool fit(wfc::seg_id s1, wfc::edge_id e1, wfc::seg_id s2, wfc::edge_id e2) const override {
 		for (int i = 0; i < m; ++i)
-			if (mod1.cols[faceElemIdx(s1, i)] != mod2.cols[faceElemIdx(s2, mirror ? i : m - 1 - i)])
+			if (segments[s1].faceElem(e1, i) != segments[s2].faceElem(e2, m-1-i))
 				return false;
 		return true;
-	}
-
-	// Computes the lookup table that stores which segments fit together.
-	void computeFitLU() {
-		AutoTimer at(g_timer, _FUNC_);
-		for (int mod1 = 0; mod1 < modus.size(); ++mod1) {
-			for (int s1 = 0; s1 < 4; ++s1) {
-				for (int mod2 = 0; mod2 < modus.size(); ++mod2) {
-					for (int s2 = 0; s2 < 4; ++s2) {
-						for (int mirrorX = 0; mirrorX <= (short)MIRROR; ++mirrorX)
-							fitlus[(((mod1 * 4 + s1) * modus.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirrorX] = fit(modus[mod1], s1, modus[mod2], s2, (bool)mirrorX);
-					}
-				}
-			}
-		}
-	}
-
-	inline bool fitlu(int mod1, int s1, int mod2, int s2, bool mirror) const {
-		return fitlus[(((mod1 * 4 + s1) * modus.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirror];
-	}
-	inline bool fitlu(int mod1, int rot1, bool mirror1, int side1, int mod2, int rot2, bool mirror2) const {
-		int s1 = (side1 - rot1 + 4) % 4, s2 = (3 - side1 - rot2 + 4) % 4;
-		if (mirror1) { s1 = (4 - s1) % 4; }
-		if (mirror2) { s2 = (4 - s2) % 4; }
-		return fitlu(mod1, s1, mod2, s2, mirror1 ^ mirror2);
 	}
 
 public:
 	void load(std::filesystem::path filename){
 		AutoTimer at(g_timer, _FUNC_);
-		const int nmodus = k * k;
-		const int noptions = nmodus * 4 * (MIRROR + 1);
-		modus.resize(nmodus);
-		allOptions.resize(noptions);
-		fitlus.resize((nmodus * 4) * (nmodus * 4) * (MIRROR + 1));
+		nSegs = k * k;
+		nTrafos = d4.getNumElems();
+		segments.resize(nSegs);
 
 		if(std::filesystem::exists(filename)){
-			std::ifstream infile(filename, std::ios::binary);
 			colour imagedata[m * m * k * k];
+			std::ifstream infile(filename, std::ios::binary);
 			infile.read((char*)(imagedata), sizeof(imagedata));
 			infile.close();
 			for (int i = 0; i < k; ++i) {
 				for (int j = 0; j < k; ++j) {
 					for (int a = 0; a < m; ++a)
 						for (int b = 0; b < m; ++b)
-							modus[(i * k + j)].cols[a * m + b] = imagedata[m * m * k * i + m * j + m * k * a + b];
+							segments[(i * k + j)].cols[a * m + b] = imagedata[m * m * k * i + m * j + m * k * a + b];
 				}
 			}
-			for (int i = 0; i < modus.size(); ++i)
-				for (short r = 0; r < 4; ++r)
-					for (short mirr = 0; mirr <= (short)MIRROR; ++mirr)
-						allOptions[(i * 4 + r) * (MIRROR + 1) + mirr] = { i,r,(bool)mirr };
+			for (wfc::seg_id s = 0; s < segments.size(); ++s) {
+				auto& sy = segments[s].symm = &d4;
+				for (wfc::trafo_id tr = 0; tr < sy->getNumElems(); ++tr)
+					options.push_back({.segment=s, .trafo=sy->getTrafo(tr), .prio=0});
+			}
 			computeFitLU();
 		}
-		else std::cout<< "Could not find segment file " << filename << std::endl;
-	}
-	int getNumOptions() const override {
-		return allOptions.size();
-	}
-	wfc::option const& getOption(wfc::option_id i) const override {
-		return allOptions[i];
-	}
-	bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& otherOpt, int otherDir) const override {
-		for (int i : sp)
-			if (const wfc::option& own_opt = allOptions[i];
-					fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-					      otherOpt.modIdx, otherOpt.rot, otherOpt.mirrorX))
-				return true;
-		return false;
+		else std::cout << "Could not find segment file " << filename << std::endl;
 	}
 };
 
-namespace fs = std::filesystem;
+
+
 
 class CarcassonnePalette : public wfc::SegmentPalette{
-
 	using interface_id = unsigned char;
+	static const bool allowReflections = false;
 
 	struct seg {
-		interface_id interfaces[4];
-		bool reflectable;
+		interface_id interfaces[12]; // max 6 edges and two directions each
+		const wfc::symmetryGroup2D* symm;
 	};
-
 	std::vector<seg> segments;
-	std::vector<bool> fitlus;
-	std::vector<wfc::option> allOptions;
-	const int MIRROR = 0;
+
+	const wfc::dihedralGroup<3, allowReflections> d3;
+	const wfc::dihedralGroup<4, allowReflections> d4;
+	const wfc::dihedralGroup<5, allowReflections> d5;
+	const wfc::dihedralGroup<6, allowReflections> d6;
 
 	// Returns whether the two segments fit together with the given sides.
-	bool fit(seg const& s1, int e1, seg const& s2, int e2, bool mirror) const {
-//		e1 = (e1+1)%4;
-//		e2 = (e2+1)%4;
-		return s1.interfaces[e1] == s2.interfaces[e2];
-	}
-
-	// Computes the lookup table that stores which segments fit together.
-	void computeFitLU() {
-		AutoTimer at(g_timer, _FUNC_);
-		for (int s1 = 0; s1 < segments.size(); ++s1) {
-			for (int e1 = 0; e1 < 4; ++e1) {
-				for (int s2 = 0; s2 < segments.size(); ++s2) {
-					for (int e2 = 0; e2 < 4; ++e2) {
-						for (int mirrorX = 0; mirrorX <= (short)MIRROR; ++mirrorX)
-							fitlus[(((s1 * 4 + e1) * segments.size() + s2) * 4 + e2) * (MIRROR + 1) + mirrorX] = fit(segments[s1], e1, segments[s2], e2, (bool)mirrorX);
-					}
-				}
-			}
-		}
-	}
-
-	inline bool fitlu(int mod1, int s1, int mod2, int s2, bool mirror) const {
-		return fitlus[(((mod1 * 4 + s1) * segments.size() + mod2) * 4 + s2) * (MIRROR + 1) + mirror];
-	}
-	inline bool fitlu(int seg1, int rot1, bool refl1, int side1,
-	                  int seg2, int rot2, bool refl2, int side2) const {
-		int e1 = (side1 - rot1 + 4) % 4, e2 = (side2 - rot2 + 4) % 4;
-		if (refl1) { e1 = (4 - e1) % 4; }
-		if (refl2) { e2 = (4 - e2) % 4; }
-		return fitlu(seg1, e1, seg2, e2, refl1 ^ refl2);
+	bool fit(wfc::seg_id s1, wfc::edge_id e1, wfc::seg_id s2, wfc::edge_id e2) const override {
+		assert(e1 < segments[s1].symm->getNumElems());
+		assert(e2 < segments[s2].symm->getNumElems());
+		return segments[s1].interfaces[e1] == segments[s2].interfaces[e2];
 	}
 
 public:
-	void load(fs::path directory){
+	void load(std::filesystem::path directory){
 		AutoTimer at(g_timer, _FUNC_);
+		namespace fs = std::filesystem;
 
-		const auto mask = std::regex("[012]{4}(_\\d)?\\.png");
-		int nSegments = 0, nOptions = 0;
-		for (const auto& file : fs::directory_iterator(directory)){
+		nSegs = 0;
+		nTrafos = d6.getNumElems(); // use the maximum
+
+		std::vector<std::string> filenames;
+		const auto mask = std::regex("[012]{3,6}(_\\d)?\\.png");
+		for (const auto& file : fs::directory_iterator(directory)) {
 			auto filename = file.path().filename().string();
-			if(file.is_regular_file() && std::regex_match(filename, mask)){
-				auto& seg = segments.emplace_back();
-				for(int i = 0; i < 4; ++i) seg.interfaces[i] = filename[i];
-				seg.reflectable = false;
-				nSegments += 1;
-				nOptions += 4; // todo!
-
-				std::cout << "Found segment file " << filename << std::endl;
+			if (file.is_regular_file() && std::regex_match(filename, mask)) {
+				filenames.push_back(filename);
 			}
 		}
 
-		allOptions.resize(nOptions);
-		fitlus.resize(nOptions * nOptions);
+		std::ofstream file(directory/"carcaIndex.txt");
+		for(auto& a : filenames) file << a << "\n";
+		file.close();
 
-		for (int i = 0; i < segments.size(); ++i)
-			for (short r = 0; r < 4; ++r)
-				for (short mirr = 0; mirr <= (short)MIRROR; ++mirr)
-					allOptions[(i * 4 + r) * (MIRROR + 1) + mirr] = { i,r,(bool)mirr };
+		for(auto filename : filenames){
+			std::cout << "Found segment file " << filename << std::endl;
+			auto& seg = segments.emplace_back();
+			wfc::seg_id id = segments.size()-1;
+			int nEdges = filename.find_first_of("_.");
+			for(wfc::edge_id i = 0; i < nEdges; ++i) seg.interfaces[i] = seg.interfaces[nEdges+i] = filename[i];
+
+			// Assign a symmetry group and generate options
+			switch (nEdges) {
+				case 3: seg.symm = &d3; break;
+				case 4: seg.symm = &d4; break;
+				case 5: seg.symm = &d5; break;
+				case 6: seg.symm = &d6; break;
+			}
+			for (wfc::trafo_id tr = 0; tr < seg.symm->getNumElems(); ++tr)
+				options.push_back({.segment=id, .trafo=seg.symm->getTrafo(tr), .prio=0});
+			nSegs += 1;
+		}
+
 		computeFitLU();
-	}
-	int getNumOptions() const override {
-		return allOptions.size();
-	}
-	const wfc::option& getOption(wfc::option_id i) const override {
-		return allOptions[i];
-	}
-	inline bool isPossibleNeighbour(wfc::superposition const& sp, int dir, wfc::option const& otherOpt, int otherDir) const override {
-		for (wfc::option_id i : sp)
-			if (const wfc::option& own_opt = allOptions[i];
-					fitlu(own_opt.modIdx, own_opt.rot, own_opt.mirrorX, dir,
-					      otherOpt.modIdx, otherOpt.rot, otherOpt.mirrorX, otherDir))
-				return true;
-		return false;
 	}
 };
 
+
+//#define BENCHMARK
 
 int main()
 {
 	srand(273);
+	wfc::transform2D::generate();
 
-	// In the beginning there was the grid
+#if defined BENCHMARK
+	{
+		// In the beginning there was the grid
+		using grid_t = grid<upto<6>, always<4>>;
+		grid_t primal;
+
+		HexQuadGenerator generator;
+		generator.generate(50);
+		generator.convert(primal);
+
+		std::ofstream file("grid.txt");
+		primal.print(file);
+		file.close();
+
+
+		// Load the segments from file
+		ImagePalette palette;
+		palette.load("modules.txt");
+
+
+		// Create the option space for this grid
+		wfc::gridState<grid_t> state;
+		state.init(&primal, &palette);
+
+		// Find a constellation that satisfies all conditions
+		wfc::WaveFunctionCollapser<grid_t> collapser;
+		collapser.solve(&state);
+
+
+		std::ofstream outfile("canvas.txt");
+		state.print(outfile, " ");
+		outfile.close();
+
+		g_timer.print();
+
+		return 0;
+	};
+#endif
+
 	using grid_t = grid<upto<6>, always<4>>;
 	grid_t primal;
 
 	HexQuadGenerator generator;
-	generator.generate(50);
+	generator.generate(4);
 	generator.relax(10);
-
-	generator.print();
-
 	generator.convert(primal);
 
-//	using grid_t = grid<always<4>, always<4>>;
-//	grid_t primal;
-//
-//	SquareGenerator generator;
-//	generator.generate(30);
-//	generator.convert(primal);
 
 	std::ofstream file("grid.txt");
 	primal.print(file);
 	file.close();
+
+	std::ofstream debugfile("gridDebug.txt");
+	primal.printDebug(debugfile);
+	debugfile.close();
+
+
 
 	// Compute the dual because it looks so nice
 	grid_t::dual_t dual;
@@ -254,25 +227,40 @@ int main()
 	dual.print(dualfile);
 	dualfile.close();
 
+	std::ofstream dualDebugfile("dualDebug.txt");
+	dual.printDebug(dualDebugfile);
+	dualDebugfile.close();
+
 
 	// Load the segments from file
-	ImagePalette palette;
-	palette.load("modules.txt");
-//	CarcassonnePalette palette;
-//	palette.load("carcassonne/", primal.meta);
+//	ImagePalette palette;
+//	palette.load("modules.txt");
+	CarcassonnePalette palette;
+	palette.load("carcassonne/");
 
-	// Create the option space for this grid
-	wfc::gridState<grid_t> state;
-	state.init(&primal, &palette);
 
+
+//	// Create the option space for this grid
+//	wfc::gridState<grid_t> state;
+//	state.init(&primal, &palette);
+//
+//	// Find a constellation that satisfies all conditions
+//	wfc::WaveFunctionCollapser<grid_t> collapser;
+//	collapser.solve(&state);
+
+
+
+	wfc::gridState<grid_t::dual_t> state;
+	state.init(&dual, &palette);
 
 	// Find a constellation that satisfies all conditions
-	wfc::WaveFunctionCollapser<grid_t> collapser;
+	wfc::WaveFunctionCollapser<grid_t::dual_t> collapser;
 	collapser.solve(&state);
-	//collapser.solveRecursive(&state);
+	state.checkSolution();
+
 
 	std::ofstream outfile("canvas.txt");
-	state.printCanvas(outfile, " ");
+	state.print(outfile, " ");
 	outfile.close();
 
 	g_timer.print();

@@ -19,7 +19,7 @@
 #include <mutex>
 #include <filesystem>
 #include <random>
-
+#include <execution>
 
 namespace wfc
 {
@@ -52,14 +52,76 @@ namespace wfc
 	};
 
 
-
 	// ---------------------------------------------------------------------------------------
 	// The segments
 
+	using seg_id = int;
+	using trafo_id = char;
+	using edge_id = int;
+
+
+	struct transform2D{
+		const int N;
+		const bool reflectX; // first reflect, then rotate
+		const int rot;
+		const edge_id* const mym;
+
+		static inline edge_id m3[3*2*6], m4[4*2*8], m5[5*2*10], m6[6*2*12];
+		static constexpr edge_id (*ms[7])[] = {0,0,0,&m3,&m4,&m5,&m6};
+
+		transform2D(int n, bool refl, int rot)
+			: N{n}, reflectX{refl}, rot{rot}, mym{(*ms[N])+(rot*2+reflectX)*(2*N)}{
+			assert(3<=n && n<=6);
+		}
+		inline edge_id apply(edge_id e) const {
+			// With careless implementation, a single integer multiplication in this line
+			// can be responsible for ~10% of total execution time! The runtime-N really hurts here.
+			// I think, this solution is near optimal, though.
+			return mym[e];
+		}
+		static void generate(){
+			for(int N = 3; N <= 6; ++N){
+				for(edge_id e = 0; e < 2*N; ++e){
+					for(int m = 0; m < 2; ++m){
+						for(int r = 0; r < N; ++r){
+							int off = e/N;
+							edge_id x = (e%N-r+N)%N+off*N;
+							if(m) x = ((N - x%N) % N)+(1-off)*N;
+							(*ms[N])[(r*2+m)*(2*N)+e] = x;
+						}
+					}
+				}
+			}
+		}
+	};
+
+	/*          cell/slot
+	 *             /\
+	 *            /  \
+	 *           / /\ \
+	 *      e=1 / /  \ \ e=2
+	 *         / /    \ \
+	 *        / / seg  \ \
+	 *       / /________\ \
+	 *      /______________\
+	 *            e=0
+	 */
+	struct symmetryGroup2D {
+		virtual wfc::trafo_id getNumElems() const = 0;
+		virtual wfc::transform2D getTrafo(wfc::trafo_id) const = 0;
+	};
+	template<int N, bool reflect = true>
+	struct dihedralGroup : public symmetryGroup2D {
+		wfc::trafo_id getNumElems() const override { return N*(1+reflect); }
+		wfc::transform2D getTrafo(wfc::trafo_id i) const override{
+			return wfc::transform2D(N,i / N > 0,i % N);
+		}
+	};
+
+
 	struct option {
-		int modIdx;
-		short rot;
-		bool mirrorX;
+		seg_id segment;
+		transform2D trafo;
 		int prio = 0;
 		bool operator==(option const&)const = default;
 	};
@@ -69,38 +131,119 @@ namespace wfc
 	using wavefunction = std::vector<superposition>;
 
 	class SegmentPalette {
+	protected: // These members are fixed to avoid vftable lookups for better performance.
+		std::vector<wfc::option> options;
+		std::vector<bool> fitlus;
+		int nSegs = 0, nTrafos = 0; // Need to be set by the derived class
+
+		inline size_t luidx(wfc::seg_id s1, wfc::edge_id e1, wfc::seg_id s2, wfc::edge_id e2) const {
+			return ((s1 * nTrafos + e1) * nSegs + s2) * nTrafos + e2;
+		}
+
+		virtual bool fit(seg_id s1, edge_id e1, seg_id s2, edge_id e2) const = 0;
+
+		// Computes the lookup table that stores which segments fit together.
+		void computeFitLU() {
+			AutoTimer at(g_timer, _FUNC_);
+			fitlus.resize(std::pow(nSegs*nTrafos, 2)); // This is too many TODO /2
+			for (option const& o1 : options) {
+				for (option const& o2 : options) {
+					wfc::edge_id e1 = o1.trafo.apply(0);
+					wfc::edge_id e2 = o2.trafo.apply(0);
+					fitlus[luidx(o1.segment, e1, o2.segment, e2)] = fit(o1.segment, e1, o2.segment, e2);
+				}
+			}
+		}
+
+
 	public:
-		virtual int getNumOptions() const = 0;
-		virtual option const& getOption(option_id i) const = 0;
-		virtual bool isPossibleNeighbour(superposition const& sp, int dir, option const& otherOpt, int otherDir) const = 0;
+		int getNumOptions() const {
+			return options.size();
+		}
+		inline option const& getOption(wfc::option_id i) const {
+			return options[i];
+		}
+
+		// Fills in the options for n-gons.
+		void getOptions(std::vector<option_id>& opts, int nEdges) const {
+			for(option_id id = 0; option const& o : options){
+				if(o.trafo.N == nEdges)
+					opts.push_back(id);
+				++id;
+			}
+		}
+
+
+		// Returns whether o2 fits to any option in sp. This is performance-critical!
+		inline bool isPossibleNeighbour(wfc::superposition const& sp, edge_id e1, wfc::option const& o2, edge_id e2) const {
+			e2 = o2.trafo.apply(e2);
+			for (option_id i : sp){
+				const wfc::option& o1 = options[i];
+				if (fitlus[luidx(o1.segment,o1.trafo.apply(e1), o2.segment,e2)])
+					return true;
+			}
+			return false;
+		}
 	};
 
 	// ---------------------------------------------------------------------------------------
 	// The possibilities
 
 	template<class grid_t>
-	struct gridState{
+	class gridState{
+	public:
 		using face_t = typename grid_t::face_t;
 		const grid_t* grid = nullptr;
 		const SegmentPalette* palette = nullptr;
+
 		wavefunction wave;
-		superposition allSP;
+		std::vector<superposition> allSPn; // one for each edge count
 
 		struct faceInfo{
 			bool dirty = false;
+			bool disabled = false;
 		};
 		std::vector<faceInfo> faceInfos;
+
 
 		void init(grid_t const* g, SegmentPalette const* p){
 			grid = g;
 			palette = p;
 
-			allSP.resize(palette->getNumOptions());
-			std::iota(std::begin(allSP), std::end(allSP), 0);
+			// Creates the total superpositions for each edge count
+			allSPn.resize(7);
+			for(int n = 3; n <= 6; ++n)
+				palette->getOptions(allSPn[n], n);
 
-			// Creates the total superposition for each cell in the grid:
-			wave.resize(g->faces.size(), allSP);
-			faceInfos.resize(g->faces.size());
+			reset();
+		}
+
+		void reset(){
+			// Allow each face all options for its edge count
+			wave.resize(grid->faces.size());
+			faceInfos.resize(grid->faces.size());
+			for(int i = 0; i < grid->faces.size(); ++i) {
+				int nEdges = grid->faces[i].getNumCorners();
+				wave[i] = allSPn[nEdges];
+				faceInfos[i].dirty = false;
+				faceInfos[i].disabled = (nEdges < 3);
+			}
+		}
+
+		// Fills the superposition of the slot based on hard conditions, e.g. by marching cubes.
+		// The result is used as the initial state for wfc.
+		void fillOptions(face_id f) {
+			getOptions(f) = allSPn[grid->faces[f].getNumCorners()];
+		}
+
+		// Fills superpositions of all (touched) slots with the prefiltered options.
+		void fillWave(bool all){
+			grid->forAllFaces([&, counter=0](face_t const& c)mutable{
+				bool needsUpdate = getInfo(&c).dirty || all;
+				if(needsUpdate){// suppose this is a new slot
+					fillOptions(c);
+				}
+			});
 		}
 
 		face_id getLowestEntropyFace() const {
@@ -135,28 +278,50 @@ namespace wfc
 		}
 
 		bool isCollapsed() const {
-			for (auto& a : wave) if (a.size() == 0) return true; else if (a.size() > 1) return false;
+			for (int i = 0; auto& a : wave) {
+				if(!faceInfos[i].disabled){if (a.size() == 0) return true; else if (a.size() > 1) return false;}
+				++i;
+			}
 			return true;
 		}
 		bool isStuck() const {
-			for (auto& a : wave) if (a.size() == 0) return true;
+			for (int i = 0; auto& a : wave){
+				if(!faceInfos[i].disabled){if (a.size() == 0) return true;}
+				++i;
+			}
 			return false;
 		}
-		bool isAnyMirrored() const {
+		bool isAnyReflected() const {
 			for (auto& a : wave)
 				for (auto& b : a)
-					if (palette->getOption(b).mirrorX)
+					if (palette->getOption(b).trafo.reflectX)
 						return true;
 			return false;
 		}
 
-		void printCanvas(std::ostream& os, std::string sep = "") const {
+		void checkSolution() const{
+			assert(isCollapsed() && !isStuck());
+			int nDefects = 0;
+			for(int f0 = 0; f0 < grid->faces.size(); ++f0){
+				if(grid->faces[f0].getNumCorners() < 3) continue;
+				for(int d = 0; d < grid->faces[f0].getNumCorners(); ++d){
+					int f1 = grid->faces[f0].neighbours[d];
+					if(f1 < 0) continue;
+					if(grid->faces[f1].getNumCorners() < 3) continue;
+					bool fits = palette->isPossibleNeighbour(wave[f0], d, palette->getOption(wave[f1].front()), grid->getComplFace(f0, d));
+					if(!fits) nDefects++;
+				}
+			}
+			std::cerr << "Num fit Defects = "<< nDefects <<std::endl;
+		}
+
+		void print(std::ostream& os, std::string sep = "") const {
 			for (auto& sp : wave) {
 				if (sp.size() != 1)
 					os << "-1 0 0" << sep;
 				else {
 					const option& opt = palette->getOption(sp[0]);
-					os << opt.modIdx << " " << opt.rot << " " << opt.mirrorX << sep;
+					os << opt.segment << " " << opt.trafo.rot << " " << (int)opt.trafo.reflectX << sep;
 				}
 				os << std::endl;
 			}
@@ -177,80 +342,6 @@ namespace wfc
 		SegmentPalette const* palette;
 		std::mt19937 rg;
 
-
-		// Fills the superposition of the slot based on hard conditions. The result is used as the initial state for wfc.
-		void fillOptions(face_id f) {
-			state->getOptions(f) = state->allSP;
-		}
-
-		void collapse(face_id c) {
-			superposition& sp = state->getOptions(c);
-			sp = { sp[rand() % sp.size()] };
-		}
-
-		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
-		bool propagate(face_id c) {
-			AutoTimer at(g_timer, _FUNC_);
-			std::map<face_id, superposition> backup;
-			uniqueStack<face_id> jobs;
-			const auto& faces = state->grid->faces;
-			jobs.push(c);
-			while (!jobs.empty()) {
-				face_id p = jobs.pop();
-				superposition& sp = state->getOptions(p);
-				for (int d = 0; d < faces[p].getNumCorners(); ++d) {
-					face_id nnp = state->getNeighbourFace(p, d);
-					if (nnp != -1) {
-						superposition& nnsp = state->getOptions(nnp);
-						if (nnsp.size() <= 1) continue;
-						if (!backup.contains(nnp)) backup[nnp] = nnsp;
-
-						int dstar = state->grid->getComplFace(p, d);
-
-						erase_neighbours:
-						{
-							//AutoTimer at(g_timer, "erase neighbours");
-							if (std::erase_if(nnsp, [&](int const& otherOpt) {
-								return !palette->isPossibleNeighbour(sp, d, palette->getOption(otherOpt), dstar);
-							}))
-								jobs.push(nnp);
-						}
-
-						if (nnsp.empty()) {
-							if (auto fi = state->getInfo(nnp); !fi.dirty) {
-								// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
-								fillOptions(nnp);
-								fi.dirty = true;
-								if (nnsp != backup[nnp]) {
-									backup[nnp] = nnsp;
-									goto erase_neighbours;
-								}
-							} else goto undo_propagate;
-						}
-					}
-				}
-			}
-			return true;
-
-			undo_propagate:
-			{
-				AutoTimer at(g_timer, "undo propagate");
-				for (const auto& p: backup)
-					state->getOptions(p.first) = p.second;
-			}
-			return false;
-		}
-
-		// Fills superpositions of all (touched) slots with the prefiltered options.
-		void fillWave(bool all){
-			state->grid->forAllFaces([&, counter=0](face_t const& c)mutable{
-				bool needsUpdate = state->getInfo(&c).dirty || all;
-				if(needsUpdate){// suppose this is a new slot
-					fillOptions(c);
-				}
-			});
-		}
-
 		// Returns a list of numbers from 0 to n-1 in random order but such that the prio(ret[i]) >= prio(ret[i+1]).
 		std::vector<int> sort_shuffle(int n, std::function<int(int)> prio, std::mt19937& rg){
 			if(n==1)return {0};
@@ -261,25 +352,76 @@ namespace wfc
 			return rand_order;
 		}
 
-	public:
-		void solve(state_t* s) {
-			AutoTimer at(g_timer, _FUNC_);
 
-			state = s;
-			palette = s->palette;
-
-			while (!state->isCollapsed()) {
-				auto p = state->getLowestEntropyFace();
-				collapse(p);
-				propagate(p);
-			}
-
-			std::cout << "isAnyMirrored = " << state->isAnyMirrored() << std::endl;
-			std::cout << "isStuck = " << state->isStuck() << std::endl;
+		void collapse(face_id f) {
+			superposition& sp = state->getOptions(f);
+			sp = { sp[rand() % sp.size()] };
+			//std::cerr << "Collapsed "<<f<<" to "<<sp.front()<<std::endl;
 		}
 
+		// Remove options of neighbouring cells that do not fit to any option of the given cell. Returns if the neighbours have options left.
+		bool propagate(face_id f) {
+			AutoTimer at(g_timer, _FUNC_);
 
-		// Returns if successfull i.e. not stuck.
+			//auto hardBackup = state->wave;
+
+			std::map<face_id, superposition> backup;
+			uniqueStack<face_id> jobs;
+			const auto& faces = state->grid->faces;
+			jobs.push(f);
+			while (!jobs.empty()) {
+				face_id f0 = jobs.pop();
+				const superposition& sp0 = state->getOptions(f0);
+				for (edge_id d0 = 0; d0 < faces[f0].getNumCorners(); ++d0) {
+					face_id f1 = state->getNeighbourFace(f0, d0);
+					if (f1 < 0) continue;
+
+					superposition& sp1 = state->getOptions(f1);
+					if (sp1.size() <= 1) continue;
+					backup.try_emplace(f1, sp1);
+
+					erase_neighbours:
+					{
+						//AutoTimer at(g_timer, "erase neighbours");
+						const int d1 = state->grid->getComplFace(f0, d0);
+						if (std::erase_if(sp1, [&](option_id const& o1) {
+							return !palette->isPossibleNeighbour(sp0, d0, palette->getOption(o1), d1);
+						}))
+							jobs.push(f1);
+					}
+
+					if (sp1.empty()) {
+						std::cerr << "empty" << std::endl;
+
+						if (auto& fi = state->getInfo(f1); !fi.dirty) {
+							// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
+							state->fillOptions(f1);
+							//fi.dirty = true;
+							if (sp1 != backup[f1]) {
+								std::cerr << "saved: found new options" << std::endl;
+								backup.insert_or_assign(f1, sp1);
+								goto erase_neighbours;
+							}
+							else
+								goto undo_propagate;
+						} else goto undo_propagate;
+					}
+				}
+			}
+			return true;
+
+			undo_propagate:
+			std::cerr<< "undo propagate: " <<backup.size() << std::endl;
+			{
+				AutoTimer at(g_timer, "undo propagate");
+				for (const auto& p : backup)
+					state->getOptions(p.first) = p.second;
+				//assert(state->wave == hardBackup);
+			}
+			return false;
+		}
+
+		// Returns if successful i.e. not stuck.
 		bool backtrack(int& out_nrecursions, int& out_niters, int stage) {
 			std::string ph = std::string(stage, '|');
 			if (state->isCollapsed())
@@ -294,7 +436,7 @@ namespace wfc
 			//std::cerr << ph << "backup="; for (int i : backup) std::cerr << i << ", ";
 			//std::cerr << std::endl;
 			std::vector<int> rand_order = sort_shuffle(backup.size(),
-													   [&](int i) {return palette->getOption(i).prio; }, rg);
+			                                           [&](int i) {return palette->getOption(i).prio; }, rg);
 			for (int idx : rand_order) {
 				// Make a choice:
 				int a = backup[idx];
@@ -318,16 +460,34 @@ namespace wfc
 			return false;
 		}
 
+	public:
+		void solve(state_t* s) {
+			AutoTimer at(g_timer, _FUNC_);
 
+			state = s;
+			palette = s->palette;
+			superposition backup;
+
+			while (!state->isCollapsed()) {
+				face_id f = state->getLowestEntropyFace();
+				backup = state->getOptions(f);
+				collapse(f);
+				if(!propagate(f))
+					state->getOptions(f) = backup;
+			}
+
+			std::cout << "isAnyReflected = " << state->isAnyReflected() << std::endl;
+			std::cout << "isStuck = " << state->isStuck() << std::endl;
+		}
 
 		// Solves the wave with backtracking.
-		void solveRecursive(state_t* s) { //, newModuleCB_t&& newMod
+		void solveRecursive(state_t* s) {
 			AutoTimer at(g_timer, _FUNC_);
 
 			state = s;
 			palette = s->palette;
 
-			fillWave(true);
+			state->fillWave(true);
 			auto action = [&]() mutable {
 
 //				// Map the intern wave function to the grid slots:
@@ -347,7 +507,7 @@ namespace wfc
 				std::cout << "> Wave size = " << state->wave.size() << std::endl;
 				std::cout << "> recursion = " << nrecursions << std::endl;
 				std::cout << "> neighbour-interactions = " << niters << std::endl;
-				std::cout << "> isAnyMirrored = " << state->isAnyMirrored() << std::endl;
+				std::cout << "> isAnyReflected = " << state->isAnyReflected() << std::endl;
 				std::cout << "> isStuck = " << state->isStuck() << std::endl;
 
 				//realize(g, newMod);

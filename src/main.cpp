@@ -5,7 +5,8 @@
 #include <regex>
 
 //#define BENCHMARK
-
+//#define CARCA
+//#define DUAL
 
 class ImagePalette : public wfc::SegmentPalette{
 	static const int m = 6; // tile size per axis in pixels
@@ -155,49 +156,45 @@ int main()
 	wfc::transform2D::generate();
 
 #if defined BENCHMARK
-	{
-		// In the beginning there was the grid
-		using grid_t = grid<upto<6>, always<4>>;
-		grid_t primal;
 
-		HexQuadGenerator generator;
-		generator.generate(50);
-		generator.convert(primal);
+	// In the beginning there was the grid
+	using grid_t = grid<upto<6>, always<4>>;
+	grid_t primal;
 
-		std::ofstream file("grid.txt");
-		primal.print(file);
-		file.close();
+	HexQuadGenerator generator;
+	generator.generate(50);
+	generator.convert(primal);
 
-
-		// Load the segments from file
-		ImagePalette palette;
-		palette.load("modules.txt");
+	std::ofstream file("grid.txt");
+	primal.print(file);
+	file.close();
 
 
-		// Create the option space for this grid
-		wfc::gridState<grid_t> state;
-		state.init(&primal, &palette);
-
-		// Find a constellation that satisfies all conditions
-		wfc::WaveFunctionCollapser<grid_t> collapser;
-		collapser.solve(&state);
+	// Load the segments from file
+	ImagePalette palette;
+	palette.load("modules.txt");
 
 
-		std::ofstream outfile("canvas.txt");
-		state.print(outfile);
-		outfile.close();
+	// Create the option space for this grid
+	wfc::gridState<grid_t> state;
+	state.init(&primal, &palette);
 
-		g_timer.print();
+	// Find a constellation that satisfies all conditions
+	wfc::WaveFunctionCollapser<grid_t> collapser;
+	collapser.solve(&state);
 
-		return 0;
-	};
-#endif
+
+	std::ofstream outfile("canvas.txt");
+	state.print(outfile);
+	outfile.close();
+
+#else
 
 	using grid_t = grid<upto<6>, always<4>>;
 	grid_t primal;
 
 	HexQuadGenerator generator;
-	generator.generate(4);
+	generator.generate(5);
 	generator.relax(10);
 	generator.convert(primal);
 
@@ -206,18 +203,37 @@ int main()
 	primal.print(file);
 	file.close();
 
+	std::cout << "primal defects: ";
+	checkIntegrity(primal);
+
 	std::ofstream debugfile("gridDebug.txt");
 	primal.printDebug(debugfile);
 	debugfile.close();
 
+#if defined CARCA
+	CarcassonnePalette palette;
+	palette.load("carcassonne/");
+#else
+	ImagePalette palette;
+	palette.load("modules.txt");
+#endif
 
+#if !defined DUAL
+	wfc::gridState<grid_t> state;
+	state.init(&primal, &palette);
 
-	// Compute the dual because it looks so nice
+	// Find a constellation that satisfies all conditions
+	wfc::WaveFunctionCollapser<grid_t> collapser;
+	collapser.solve(&state);
+	state.checkSolution();
+
+	std::ofstream outfile("canvas.txt");
+	state.print(outfile);
+	outfile.close();
+#else
+	// Compute the dual
 	grid_t::dual_t dual;
 	computeDualGrid(primal, dual);
-
-	std::cout << "primal defects: ";
-	checkIntegrity(primal);
 
 	std::cout << "dual defects: ";
 	checkIntegrity(dual);
@@ -231,24 +247,6 @@ int main()
 	dualDebugfile.close();
 
 
-	// Load the segments from file
-//	ImagePalette palette;
-//	palette.load("modules.txt");
-	CarcassonnePalette palette;
-	palette.load("carcassonne/");
-
-
-
-//	// Create the option space for this grid
-//	wfc::gridState<grid_t> state;
-//	state.init(&primal, &palette);
-//
-//	// Find a constellation that satisfies all conditions
-//	wfc::WaveFunctionCollapser<grid_t> collapser;
-//	collapser.solve(&state);
-
-
-
 	wfc::gridState<grid_t::dual_t> state;
 	state.init(&dual, &palette);
 
@@ -257,10 +255,11 @@ int main()
 	collapser.solve(&state);
 	state.checkSolution();
 
-
 	std::ofstream outfile("canvas.txt");
 	state.print(outfile);
 	outfile.close();
+#endif // DUAL
+#endif // BENCHMARK
 
 	g_timer.print();
 }

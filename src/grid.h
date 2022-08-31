@@ -66,14 +66,9 @@ struct grid {
 	using dual_t = grid<NFaceVertices, NVertexFaces>;
 	using vertex_t = vertex<NVertexFaces>;
 	using face_t = face<NFaceVertices>;
-//	struct metaInformation{
-//		int complFaceSides[NFaceVertices::max()];
-//		int complVertexSides[NVertexFaces::max()];
-//	};
 
 	std::vector<vertex_t> vertices;
 	std::vector<face_t> faces;
-	//metaInformation meta;
 
 	void clear(){
 		vertices.clear();
@@ -159,9 +154,6 @@ void computeDualGrid(grid<NVertexFaces,NFaceVertices> const& src, grid<NFaceVert
 			dst.vertices[i].neighbours[j] = src.faces[i].neighbours[j];
 		}
 	}
-
-//	memcpy(dst.meta.complVertexSides, src.meta.complFaceSides, sizeof(int)*NFaceVertices::max());
-//	memcpy(dst.meta.complFaceSides, src.meta.complVertexSides, sizeof(int)*NVertexFaces::max());
 }
 
 template<class NVertexFaces, class NFaceVertices>
@@ -179,7 +171,7 @@ int checkIntegrity(grid<NVertexFaces,NFaceVertices> const& grid) {
 			if (i != fj.neighbours[grid.getComplFace(i, k)]) ++nDefects;
 		}
 	}
-	std::cout << nDefects << std::endl;
+	std::cout << nDefects << ", ";
 	nDefects = 0;
 
 	// check if the vertex complements are as advertised
@@ -200,6 +192,39 @@ int checkIntegrity(grid<NVertexFaces,NFaceVertices> const& grid) {
 
 template<class Grid>
 class GridGenerator {
+protected:
+	template<class vertex_t, class face_t>
+	void sortFacesCircularly(std::vector<vertex_t>& vertices, std::vector<face_t> const& faces) {
+		for (auto& v : vertices) {
+			if(v.getNumFaces() > 2) {
+				std::vector<int>idx(v.getNumFaces());
+				std::iota(idx.begin(), idx.end(), 0);
+				std::sort(idx.begin(), idx.end(), [&](int i, int j) {
+					face_id a = v.faces[i];
+					face_id b = v.faces[j];
+					auto pa = faces[a].centre - v.pos;
+					auto pb = faces[b].centre - v.pos;
+					return std::atan2(pa.x, pa.y) > std::atan2(pb.x, pb.y);
+				});
+
+				// Permute inplace
+				for(int i = 0; i < v.getNumFaces(); ++i){
+					int curr = i;
+					int next = idx[curr];
+					while(next != i){
+						std::swap(v.faces[curr], v.faces[next]);
+						std::swap(v.neighbours[curr], v.neighbours[next]);
+						idx[curr] = curr;
+						curr = next;
+						next = idx[next];
+					}
+					idx[curr] = curr;
+				}
+			}
+
+		}
+	}
+
 public:
 	using grid_t = Grid;
 	virtual void convert(grid_t& g) const = 0;
@@ -224,54 +249,6 @@ class HexQuadGenerator : public GridGenerator<grid<upto<6>,always<4>>> {
 	const int mergeProb = 100;
 	float totalArea;
 
-	void sortFacesCircularly() {
-		for (auto& v : vertices) {
-			if(v.getNumFaces() > 2) {
-//			std::sort(v.faces, v.faces + v.getNumFaces(), [&v, this](face_id a, face_id b) {
-//				auto pa = faces[a].centre - v.pos;
-//				auto pb = faces[b].centre - v.pos;
-//				return std::atan2(pa.x,pa.y) > std::atan2(pb.x,pb.y);
-//			});
-
-				std::vector<int>idx(v.getNumFaces());
-				std::iota(idx.begin(), idx.end(), 0);
-				std::sort(idx.begin(), idx.end(), [&v, this](int i, int j) {
-					face_id a = v.faces[i];
-					face_id b = v.faces[j];
-					auto pa = faces[a].centre - v.pos;
-					auto pb = faces[b].centre - v.pos;
-					return std::atan2(pa.x, pa.y) > std::atan2(pb.x, pb.y);
-				});
-
-				std::vector<int> tempfaces(v.getNumFaces());
-				std::vector<int> tempneighbours(v.getNumFaces());
-				for(int i = 0; i< v.getNumFaces(); ++i) {
-					tempfaces[i] = v.faces[i];
-					tempneighbours[i] = v.neighbours[i];
-				}
-
-				for(int i = 0; i< v.getNumFaces(); ++i){
-					v.faces[i] = tempfaces[idx[i]];
-					//v.neighbours[(i-1+v.getNumFaces())%v.getNumFaces()] = tempneighbours[idx[i]];
-					v.neighbours[i] = tempneighbours[idx[i]];
-				}
-
-
-
-
-			}
-//			if(v.nNeighbours > 2) {
-//				std::sort(v.neighbours, v.neighbours+ v.nNeighbours, [&v, this](vert_id a, vert_id b) {
-//					auto pa = vertices[a].pos - v.pos;
-//					auto pb = vertices[b].pos - v.pos;
-//					return std::atan2(pa.x, pa.y) > std::atan2(pb.x, pb.y);
-//				});
-//
-//			}
-
-		}
-	}
-
 public:
 	/*  Example for argument n=1:
 	 *
@@ -288,18 +265,19 @@ public:
 	 */
 	void generate(int n) {
 		AutoTimer at(g_timer,_FUNC_);
-		n *= 2; // regular hexagons need even n
+		// Note: Complement faces in this grid: 0<->3, 1<->2. But no such easy rule can be made for the dual.
+
+		n *= 2; // Regular hexagons need even n.
 		faces.reserve(n * 2 * n * 3);
 		faces.resize(n * 2 * n);
-		int nblocks = faces.size();
-		vertices.reserve((n + 1 + n) * (n + 1 + n) + nblocks);// reserve enough for the worst case. we cannot reallocate!
+		vertices.reserve((n + 1 + n) * (n + 1 + n) + (n * 2 * n)); // Reserve enough for the worst case. We cannot reallocate!
 		vertices.resize((n + 1 + n) * (n + 1 + n));
 
 		const float h = std::sqrt(3.f) / 2.f;
 		auto getNode = [this, n](int i, int j, int ii = 0, int jj = 0)->c_vertex& {return vertices[(j * 2 + jj) * (n + 1 + n) + (i * 2 + ii)]; };
 		auto getNodeIdx = [n](int i, int j, int ii = 0, int jj = 0)->vert_id {return (j * 2 + jj) * (n + 1 + n) + (i * 2 + ii); };
 		auto getIdx = [this](c_vertex* v){return std::distance(vertices.data(), v);};
-		auto middleNode = [](vert_id v0, vert_id v1)->vert_id {return std::midpoint(v0,v1); }; // the geographic midpoint is also the memory midpoint
+		auto middleNode = [](vert_id v0, vert_id v1)->vert_id { return std::midpoint(v0,v1); }; // The geographic midpoint is also the memory midpoint.
 		auto isBorder = [n](int i, int j, int ii = 0, int jj = 0) {return i == 0 && ii == 0 || j == 0 && jj == 0 || i == n && ii == 0 || j == n && jj == 0
 		                                                           || (i + j) * 2 + ii + jj == n || (i + j) * 2 + ii + jj == n * 3; };
 		for (int j = 0; j <= n; ++j) {
@@ -310,13 +288,11 @@ public:
 				if (i > 0) {
 					auto& nod = getNode(i, j, -1, 0);
 					nod.pos = (getNode(i - 1, j).pos + getNode(i, j).pos) * 0.5f;
-					//if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 					nod.fixedX = nod.fixedY = isBorder(i, j, -1, 0);
 				}
 				if (j > 0) {
 					auto& nod = getNode(i, j, 0, -1);
 					nod.pos = (getNode(i, j - 1).pos + getNode(i, j).pos) * 0.5f;
-					// if (isBorder(i, j)) nod.fixedX = nod.fixedY = true;
 					nod.fixedX = nod.fixedY = isBorder(i, j, 0, -1);
 				}
 				if (j == 0 || i == 0) continue;
@@ -373,7 +349,7 @@ public:
 						}
 					}
 				}
-				// The left district is definitely finished now -> create 3 or 4 subcells:
+				// The left face is definitely finished now -> create 3 or 4 sub-faces:
 				auto createSubcells = [&, this](c_face& d) {
 					if (!d.exists) return;
 					v2 center{ 0, 0 }; bool tri = false;
@@ -398,8 +374,8 @@ public:
 							cn.corners[1] = middleNode(d.corners[idx[(k + 2) % 3]], d.corners[idx[k]]);
 							cn.corners[2] = d.corners[idx[k]];
 							cn.corners[3] = middleNode(d.corners[idx[k]], d.corners[idx[(k + 1) % 3]]);
-							for (int kk = 0; kk < 4; ++kk)
-								vertices[cn.corners[kk]].faces[vertices[cn.corners[kk]].nFaces++] = cnIdx;
+							for (vert_id corner : cn.corners)
+								vertices[corner].faces[vertices[corner].nFaces++] = cnIdx;
 						}
 					}
 					else {
@@ -413,8 +389,8 @@ public:
 							cn.corners[1] = middleNode(d.corners[(k + 3) % 4], d.corners[k]);
 							cn.corners[2] = d.corners[k];
 							cn.corners[3] = middleNode(d.corners[k], d.corners[(k + 1) % 4]);
-							for (int kk = 0; kk < 4; ++kk)
-								vertices[cn.corners[kk]].faces[vertices[cn.corners[kk]].nFaces++] = cnIdx;
+							for (vert_id corner : cn.corners)
+								vertices[corner].faces[vertices[corner].nFaces++] = cnIdx;
 						}
 					}
 					d.exists = false;
@@ -484,16 +460,15 @@ public:
 			f.centre = f.centre * (1.f / nCorners);
 		}
 
-		// Make sure that the faces of each vertex are ordered circularly. This will make the dual grid trivially drawable.
-		sortFacesCircularly();
+		// Make sure that the faces of each vertex are ordered circularly.
+		// This will allow wfc on the dual grid and make it trivially drawable.
+		sortFacesCircularly<c_vertex,c_face>(vertices, faces);
 
 		totalArea = std::sqrt(3.f) * 3 / 2 * n * n / 4;
 	}
 	void relax(int nRelaxIterations){
-
 		AutoTimer at(g_timer,_FUNC_);
-		int ncellstot = 0;
-		for (c_face& c : faces) if(c.exists) ncellstot++;
+		int ncellstot = std::count_if(faces.begin(),faces.end(),[](c_face const& c){return c.exists;});
 		float avgArea = totalArea / ncellstot;
 		for (int iter = 0; iter < nRelaxIterations; iter++) {
 			for (c_face& c : faces) {
@@ -510,18 +485,17 @@ public:
 				center.y /= 4;
 				area = (abs(area) - avgArea) / avgArea;
 				v2 force = { 0,0 };
-				for (int i = 0; i < 4; ++i) {
-					force = force + (vertices[c.corners[i]].pos - center);
+				for (int corner : c.corners) {
+					force = force + (vertices[corner].pos - center);
 					force = { -force.y, force.x };
 				}
-				for (int i = 0; i < 4; ++i) {
-					vertices[c.corners[i]].force = vertices[c.corners[i]].force + (center - vertices[c.corners[i]].pos) * (1 + area) + force * 0.25;
+				for (int corner : c.corners) {
+					vertices[corner].force = vertices[corner].force + (center - vertices[corner].pos) * (1 + area) + force * 0.25;
 					force = { -force.y, force.x };
 				}
 			}
-			for (int j = 0; j < vertices.size(); ++j) {
-				c_vertex& k = vertices[j];
-				if (!k.fixedX)
+			for (auto & k : vertices) {
+					if (!k.fixedX)
 					k.pos.x = k.pos.x + k.force.x * 0.2f;
 				if (!k.fixedY)
 					k.pos.y = k.pos.y + k.force.y * 0.2f;
@@ -563,12 +537,6 @@ public:
 
 		for(auto a : faces | std::views::filter([](c_face const& cf){return cf.exists;}) | std::views::transform(convertFace))
 			g.faces.push_back(a);
-
-
-//		g.meta.complFaceSides[0] = 3;
-//		g.meta.complFaceSides[1] = 2;
-//		g.meta.complFaceSides[2] = 1;
-//		g.meta.complFaceSides[3] = 0;
 	}
 };
 

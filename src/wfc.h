@@ -21,8 +21,13 @@
 #include <random>
 #include <execution>
 
+/*
+ * At the moment there is a restriction for the number of edges not te exceed 6.
+ */
+
 namespace wfc
 {
+	// This class has no relevance for performance.
 	template<typename T>
 	class uniqueStack {
 		std::stack<T> st;
@@ -60,7 +65,7 @@ namespace wfc
 	using edge_id = int;
 
 
-	struct transform2D{
+	struct transform2D {
 		const int N;
 		const bool reflectX; // first reflect, then rotate
 		const int rot;
@@ -157,14 +162,11 @@ namespace wfc
 
 
 	public:
-		int getNumOptions() const {
-			return options.size();
-		}
 		inline option const& getOption(wfc::option_id i) const {
 			return options[i];
 		}
 
-		// Fills in the options for n-gons.
+		// Fills in the indices of options for n-gons.
 		void getOptions(std::vector<option_id>& opts, int nEdges) const {
 			for(option_id id = 0; option const& o : options){
 				if(o.trafo.N == nEdges)
@@ -299,6 +301,7 @@ namespace wfc
 			return false;
 		}
 
+		// An explicit check.
 		void checkSolution() const{
 			assert(isCollapsed() && !isStuck());
 			int nDefects = 0;
@@ -312,16 +315,16 @@ namespace wfc
 					if(!fits) nDefects++;
 				}
 			}
-			std::cerr << "Num fit Defects = "<< nDefects <<std::endl;
+			std::cerr << "Num fit defects = "<< nDefects <<std::endl;
 		}
 
-		void print(std::ostream& os, std::string sep = "") const {
+		void print(std::ostream& os) const {
 			for (auto& sp : wave) {
 				if (sp.size() != 1)
-					os << "-1 0 0" << sep;
+					os << "-1 0 0 ";
 				else {
 					const option& opt = palette->getOption(sp[0]);
-					os << opt.segment << " " << opt.trafo.rot << " " << (int)opt.trafo.reflectX << sep;
+					os << opt.segment << " " << opt.trafo.rot << " " << (int)opt.trafo.reflectX << " ";
 				}
 				os << std::endl;
 			}
@@ -391,7 +394,7 @@ namespace wfc
 					}
 
 					if (sp1.empty()) {
-						std::cerr << "empty" << std::endl;
+						//std::cerr << "empty" << std::endl;
 
 						if (auto& fi = state->getInfo(f1); !fi.dirty) {
 							// we reached a dead end but there is hope: we can re-update this slot and we might get new options:
@@ -476,8 +479,8 @@ namespace wfc
 					state->getOptions(f) = backup;
 			}
 
-			std::cout << "isAnyReflected = " << state->isAnyReflected() << std::endl;
-			std::cout << "isStuck = " << state->isStuck() << std::endl;
+			std::cout << "isAnyReflected = " << (state->isAnyReflected()?"yes":"no") << std::endl;
+			std::cout << "isStuck = " << (state->isStuck()?"yes":"no") << std::endl;
 		}
 
 		// Solves the wave with backtracking.
@@ -507,8 +510,8 @@ namespace wfc
 				std::cout << "> Wave size = " << state->wave.size() << std::endl;
 				std::cout << "> recursion = " << nrecursions << std::endl;
 				std::cout << "> neighbour-interactions = " << niters << std::endl;
-				std::cout << "> isAnyReflected = " << state->isAnyReflected() << std::endl;
-				std::cout << "> isStuck = " << state->isStuck() << std::endl;
+				std::cout << "> isAnyReflected = " << (state->isAnyReflected()?"yes":"no") << std::endl;
+				std::cout << "> isStuck = " << (state->isStuck()?"yes":"no") << std::endl;
 
 				//realize(g, newMod);
 			};

@@ -4,6 +4,8 @@
 
 #include <regex>
 
+//#define BENCHMARK
+
 
 class ImagePalette : public wfc::SegmentPalette{
 	static const int m = 6; // tile size per axis in pixels
@@ -79,8 +81,6 @@ public:
 };
 
 
-
-
 class CarcassonnePalette : public wfc::SegmentPalette{
 	using interface_id = unsigned char;
 	static const bool allowReflections = false;
@@ -148,7 +148,6 @@ public:
 };
 
 
-//#define BENCHMARK
 
 int main()
 {
@@ -185,7 +184,7 @@ int main()
 
 
 		std::ofstream outfile("canvas.txt");
-		state.print(outfile, " ");
+		state.print(outfile);
 		outfile.close();
 
 		g_timer.print();
@@ -217,10 +216,10 @@ int main()
 	grid_t::dual_t dual;
 	computeDualGrid(primal, dual);
 
-	std::cout << "primal defects: " << std::endl;
+	std::cout << "primal defects: ";
 	checkIntegrity(primal);
 
-	std::cout << "dual defects: " << std::endl;
+	std::cout << "dual defects: ";
 	checkIntegrity(dual);
 
 	std::ofstream dualfile("dual.txt");
@@ -260,7 +259,7 @@ int main()
 
 
 	std::ofstream outfile("canvas.txt");
-	state.print(outfile, " ");
+	state.print(outfile);
 	outfile.close();
 
 	g_timer.print();
